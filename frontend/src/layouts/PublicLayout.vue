@@ -8,12 +8,11 @@ import {
   watch,
 } from "vue";
 import { useRoute } from "vue-router";
-import { site, errorMessage } from "../lib/api";
+import { site } from "../lib/api";
 import Icon from "../components/Icon.vue";
 const route = useRoute(),
   menu = ref(false),
-  dark = ref(false),
-  error = ref("");
+  dark = ref(false);
 const navigation = ref<HTMLElement>();
 const indicator = ref({
   transform: "translateX(0px)",
@@ -65,11 +64,10 @@ function toggleTheme() {
   }
 }
 async function load() {
-  error.value = "";
   try {
     await site.load();
-  } catch (e) {
-    error.value = errorMessage(e);
+  } catch {
+    // site.load 已记录错误，由首页介绍或其他页面的提示展示。
   }
 }
 applyTheme();
@@ -99,7 +97,10 @@ watch(
 <template>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <div class="public-shell">
-    <header class="site-header wrap">
+    <header
+      class="site-header wrap"
+      :class="{ 'home-header': route.path === '/' }"
+    >
       <RouterLink to="/" class="brand"
         ><img
           :src="site.settings?.avatar_url || '/avatar.jpg'"
@@ -162,8 +163,15 @@ watch(
       </nav>
     </header>
     <main id="main-content" class="wrap public-main">
-      <div v-if="error" class="error-panel" role="alert">
-        {{ error }} <button class="text-link" @click="load">重新连接</button>
+      <div
+        v-if="site.error && route.path !== '/'"
+        class="error-panel"
+        role="alert"
+      >
+        {{ site.error }}
+        <button class="text-link" :disabled="site.loading" @click="load">
+          {{ site.loading ? "正在连接…" : "重新连接" }}
+        </button>
       </div>
       <RouterView v-slot="{ Component, route: pageRoute }"
         ><Transition name="page" mode="out-in"

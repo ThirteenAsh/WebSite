@@ -4,6 +4,7 @@ import { api, site, errorMessage } from "../lib/api";
 import type { Content, Page } from "../lib/types";
 import Icon from "../components/Icon.vue";
 import ContentCard from "../components/ContentCard.vue";
+import HomeIntro from "../components/HomeIntro.vue";
 const projects = ref<Content[]>([]),
   writings = ref<Content[]>([]),
   loading = ref(true),
@@ -28,47 +29,13 @@ async function load() {
     loading.value = false;
   }
 }
+async function retryHome() {
+  await Promise.allSettled([site.load(), load()]);
+}
 onMounted(load);
 </script>
 <template>
-  <section class="hero">
-    <div class="hero-copy">
-      <p class="eyebrow">
-        <span class="status-dot" /> A STUDENT’S CREATIVE JOURNAL
-      </p>
-      <h1>
-        {{ site.settings?.hero_title || "把想法写成代码，" }}<br /><span>{{
-          site.settings?.hero_highlight || "把过程留在这里。"
-        }}</span>
-      </h1>
-      <p class="hero-intro">{{ site.settings?.intro }}</p>
-      <div class="hero-meta">
-        <span class="mini-code"><Icon name="code" :size="15" /></span
-        ><a
-          :href="site.settings?.github_url"
-          target="_blank"
-          rel="noopener noreferrer"
-          >@{{ site.settings?.github_username || "ThirteenAsh" }}</a
-        ><span class="meta-divider">/</span
-        ><span>{{ site.settings?.tagline || "构建 · 学习 · 记录" }}</span>
-      </div>
-    </div>
-    <div class="creative-calendar" aria-label="创作档案">
-      <div class="calendar-bindings"><i /><i /></div>
-      <div class="calendar-top">我的创作档案</div>
-      <div class="calendar-label">正在生长的想法</div>
-      <strong class="calendar-number">{{
-        String(site.counts.projects).padStart(2, "0")
-      }}</strong>
-      <div class="calendar-unit">
-        个项目 / {{ site.counts.writings }} 篇记录
-      </div>
-      <div class="calendar-bottom">
-        <strong>KEEP BUILDING</strong><span>每个想法，都值得试一次</span>
-      </div>
-      <span class="calendar-spark">✳</span>
-    </div>
-  </section>
+  <HomeIntro @retry="retryHome" />
   <div v-if="error" class="error-panel" role="alert">
     {{ error }} <button class="text-link" @click="load">重试</button>
   </div>

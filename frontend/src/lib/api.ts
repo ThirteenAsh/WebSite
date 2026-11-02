@@ -95,12 +95,23 @@ export async function upload(file: File): Promise<Upload> {
 export const site = reactive({
   settings: null as SiteSettings | null,
   counts: { projects: 0, writings: 0 },
+  loading: false,
+  error: "",
   async load() {
-    const data = await api<{
-      settings: SiteSettings;
-      counts: { projects: number; writings: number };
-    }>("/site");
-    this.settings = data.settings;
-    this.counts = data.counts;
+    this.loading = true;
+    try {
+      const data = await api<{
+        settings: SiteSettings;
+        counts: { projects: number; writings: number };
+      }>("/site");
+      this.settings = data.settings;
+      this.counts = data.counts;
+      this.error = "";
+    } catch (e) {
+      this.error = errorMessage(e);
+      throw e;
+    } finally {
+      this.loading = false;
+    }
   },
 });
