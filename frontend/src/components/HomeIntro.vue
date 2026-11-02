@@ -2,10 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { site } from "../lib/api";
 import Icon from "./Icon.vue";
+import IntroConfetti from "./IntroConfetti.vue";
 
 const emit = defineEmits<{ retry: [] }>();
 const scene = ref<HTMLElement>();
-const progress = ref(0);
+const avatar = ref<HTMLElement>();
+const sceneProgress = ref(0);
+const revealShare = ref(1);
+const scrollProgress = computed(() => sceneProgress.value / revealShare.value);
+const progress = computed(() => Math.min(1, scrollProgress.value));
 const elapsed = ref(0);
 const reducedMotion = ref(false);
 const name = computed(() => site.settings?.name || "ThirteenAsh");
@@ -59,7 +64,7 @@ const sceneStyle = computed(() => ({
   "--avatar-scale": 0.84 + avatarEnter.value * 0.16,
   "--copy-opacity": copyEnter.value,
   "--copy-y": `${32 * (1 - copyEnter.value)}px`,
-  "--intro-progress": progress.value,
+  "--intro-progress": sceneProgress.value,
 }));
 
 function typed(text: string, start: number, speed = 48) {
@@ -79,14 +84,14 @@ function updateProgress() {
   frame = 0;
   if (!scene.value) return;
   if (reducedMotion.value) {
-    progress.value = 1;
+    sceneProgress.value = 1;
     return;
   }
   const stage = scene.value.querySelector<HTMLElement>(".intro-stage");
   if (!stage) return;
   const top = header?.getBoundingClientRect().height || 0;
   const distance = Math.max(1, scene.value.offsetHeight - stage.offsetHeight);
-  progress.value = Math.max(
+  sceneProgress.value = Math.max(
     0,
     Math.min(1, (top - scene.value.getBoundingClientRect().top) / distance),
   );
@@ -100,6 +105,11 @@ function measureHeader() {
       "--intro-top",
       `${header.getBoundingClientRect().height}px`,
     );
+    const style = getComputedStyle(scene.value);
+    const reveal = parseFloat(style.getPropertyValue("--intro-reveal-screens"));
+    const hold = parseFloat(style.getPropertyValue("--intro-hold-screens"));
+    // 展开动画沿用原来的距离，额外滚动距离专门用于完整介绍的停留。
+    revealShare.value = reveal / (reveal + hold);
   }
   queueProgress();
 }
@@ -148,6 +158,12 @@ onBeforeUnmount(() => {
     aria-label="欢迎来到我的创作空间"
   >
     <div class="intro-stage">
+      <IntroConfetti
+        v-if="!reducedMotion"
+        :progress="scrollProgress"
+        :ready="avatarEnter === 1"
+        :origin="avatar"
+      />
       <div class="intro-body">
         <div class="terminal-scene" aria-hidden="true">
           <p class="terminal-caption">> thirteenash</p>
@@ -240,7 +256,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="intro-profile">
-          <div class="intro-avatar">
+          <div ref="avatar" class="intro-avatar">
             <img
               :src="site.settings?.avatar_url || '/avatar.jpg'"
               :alt="`${name} 的头像`"
@@ -294,9 +310,7 @@ onBeforeUnmount(() => {
       <div class="intro-scroll" aria-hidden="true">
         <div class="intro-scroll-label">
           <span class="scroll-mouse"><i /></span>
-          <span>{{
-            progress < 0.7 ? "向下滚动，认识一下" : "继续下滑"
-          }}</span>
+          <span>{{ progress < 0.7 ? "向下滚动，认识一下" : "继续下滑" }}</span>
         </div>
         <div class="intro-track"><i /></div>
       </div>
@@ -308,8 +322,13 @@ onBeforeUnmount(() => {
 .home-intro {
   --intro-top: 104px;
   --stage-height: max(490px, calc(100svh - var(--intro-top)));
+  --intro-reveal-screens: 1.2;
+  --intro-hold-screens: 0.5;
   position: relative;
-  height: calc(var(--stage-height) + 120svh);
+  height: calc(
+    var(--stage-height) + 100svh *
+      (var(--intro-reveal-screens) + var(--intro-hold-screens))
+  );
   margin-bottom: 64px;
 }
 .intro-stage {
@@ -687,7 +706,8 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 700px) {
   .home-intro {
-    height: calc(var(--stage-height) + 100svh);
+    --intro-reveal-screens: 1;
+    --intro-hold-screens: 0.4;
     margin-bottom: 42px;
   }
   .intro-body {
