@@ -1,0 +1,12 @@
+.cache/
+.local/
+backend/.env
+backend/uploads/
+backend/thirteenash
+backend/thirteenash.exe
+backend/bin/
+frontend/playwright-report/
+frontend/test-results/
+*.log
+scripts
+index-example.html
