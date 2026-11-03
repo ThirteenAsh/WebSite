@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, notify, errorMessage } from "../../lib/api";
 import {
   contentPath,
+  adminContentPath,
   formatDate,
   kindName,
   type Content,
@@ -12,6 +13,11 @@ import {
 import Icon from "../../components/Icon.vue";
 import Pagination from "../../components/Pagination.vue";
 import PaperSelect from "../../components/PaperSelect.vue";
+const props = defineProps<{ section: "projects" | "writings" }>();
+const isProject = computed(() => props.section === "projects");
+const listPath = computed(() =>
+  isProject.value ? "/admin/projects" : "/admin/contents",
+);
 const route = useRoute(),
   router = useRouter(),
   query = ref(""),
@@ -27,15 +33,19 @@ async function load() {
   loading.value = true;
   error.value = "";
   query.value = String(route.query.q || "");
-  kind.value = String(route.query.kind || "");
+  kind.value = ["article", "moment"].includes(String(route.query.kind))
+    ? String(route.query.kind)
+    : "";
   status.value = String(route.query.status || "");
   const params = new URLSearchParams({
     q: query.value,
-    kind: kind.value,
+    kind: isProject.value ? "project" : kind.value || "writing",
     status: status.value,
     page: String(route.query.page || 1),
     limit: "15",
   });
+  if (isProject.value && route.query.featured === "1")
+    params.set("featured", "1");
   try {
     const data = await api<Page<Content>>(`/admin/contents?${params}`);
     if (id === request) result.value = data;
@@ -47,11 +57,12 @@ async function load() {
 }
 function filter() {
   router.push({
-    path: "/admin/contents",
+    path: listPath.value,
     query: {
       q: query.value || undefined,
-      kind: kind.value || undefined,
+      kind: isProject.value ? undefined : kind.value || undefined,
       status: status.value || undefined,
+      featured: isProject.value ? route.query.featured : undefined,
     },
   });
 }
@@ -99,12 +110,48 @@ async function remove(c: Content) {
 <template>
   <div class="admin-page-heading">
     <div>
-      <p class="eyebrow">ALL YOUR STORIES</p>
-      <h1>内容管理<span class="heading-dot">.</span></h1>
-      <p>作品、文章和日常，都在这里整理。</p>
+      <p class="eyebrow">
+        {{ isProject ? "THINGS YOU BUILD" : "ALL YOUR STORIES" }}
+      </p>
+      <h1>
+        {{ isProject ? "作品管理" : "文章与日常"
+        }}<span class="heading-dot">.</span>
+      </h1>
+      <p>
+        {{
+          isProject
+            ? "管理作品介绍、首页精选、展示顺序与仓库信息。"
+            : "管理文章、随笔和日常记录。"
+        }}
+      </p>
     </div>
-    <RouterLink to="/admin/contents/new" class="btn primary"
-      ><Icon name="plus" :size="18" />新建内容</RouterLink
+    <RouterLink :to="`${listPath}/new`" class="btn primary"
+      ><Icon name="plus" :size="18" />{{
+        isProject ? "新建作品" : "新建记录"
+      }}</RouterLink
+    >
+  </div>
+  <div v-if="isProject" class="manage-project-links">
+    <RouterLink
+      :to="{
+        path: listPath,
+        query: { ...route.query, featured: undefined, page: undefined },
+      }"
+      class="project-pill"
+      :aria-current="route.query.featured !== '1' ? 'page' : undefined"
+      >全部作品</RouterLink
+    >
+    <RouterLink
+      :to="{
+        path: listPath,
+        query: { ...route.query, featured: '1', page: undefined },
+      }"
+      class="project-pill"
+      :aria-current="route.query.featured === '1' ? 'page' : undefined"
+      >首页精选</RouterLink
+    >
+    <RouterLink to="/admin/github" class="text-link"
+      >从 GitHub 导入 →</RouterLink
     >
   </div>
   <section class="admin-panel content-table-panel">
@@ -118,11 +165,11 @@ async function remove(c: Content) {
         />
       </div>
       <PaperSelect
+        v-if="!isProject"
         v-model="kind"
         label="内容形式"
         :options="[
           { value: '', label: '全部形式' },
-          { value: 'project', label: '项目' },
           { value: 'article', label: '文章' },
           { value: 'moment', label: '短动态' },
         ]"
@@ -151,7 +198,7 @@ async function remove(c: Content) {
     <table v-else class="content-table">
       <thead>
         <tr>
-          <th>内容</th>
+          <th>{{ isProject ? "作品" : "内容" }}</th>
           <th>状态</th>
           <th>浏览 / 点赞</th>
           <th>最近编辑</th>
@@ -161,12 +208,12 @@ async function remove(c: Content) {
       <tbody>
         <tr v-for="c in result.items" :key="c.id">
           <td>
-            <RouterLink :to="`/admin/contents/${c.id}`" class="table-title">{{
+            <RouterLink :to="adminContentPath(c)" class="table-title">{{
               c.title || "无标题动态"
             }}</RouterLink>
             <div class="table-subtitle">
               {{ kindName(c.kind) }}<span v-if="c.featured"> · 首页精选</span
-              ><span v-if="c.repo_name"> · {{ c.repo_name }}</span>
+              ><span v-if="isProject"> · 顺序 {{ c.sort_order }}</span>
             </div>
           </td>
           <td>
@@ -178,7 +225,7 @@ async function remove(c: Content) {
           <td class="table-date">{{ formatDate(c.updated_at) }}</td>
           <td>
             <div class="row-actions">
-              <RouterLink :to="`/admin/contents/${c.id}`" class="text-link"
+              <RouterLink :to="adminContentPath(c)" class="text-link"
                 >编辑</RouterLink
               ><RouterLink
                 v-if="c.status === 'published'"
@@ -205,7 +252,8 @@ async function remove(c: Content) {
       </tbody>
     </table>
     <div class="table-footer">
-      <span class="muted">共 {{ result.total }} 条内容</span
+      <span class="muted"
+        >共 {{ result.total }} {{ isProject ? "件作品" : "条记录" }}</span
       ><Pagination
         :page="result.page"
         :pages="result.pages"

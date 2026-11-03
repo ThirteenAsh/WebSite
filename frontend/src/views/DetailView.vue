@@ -7,6 +7,7 @@ import Icon from "../components/Icon.vue";
 import MarkdownBody from "../components/MarkdownBody.vue";
 import Gallery from "../components/Gallery.vue";
 import LikeButton from "../components/LikeButton.vue";
+import RepoPanel from "../components/RepoPanel.vue";
 const route = useRoute(),
   router = useRouter(),
   content = ref<Content>(),
@@ -104,53 +105,7 @@ async function share() {
       </div>
       <p v-if="content.summary" class="detail-summary">{{ content.summary }}</p>
     </header>
-    <div v-if="isProject" class="repo-panel paper-card">
-      <div>
-        <span class="eyebrow">GITHUB REPOSITORY</span>
-        <h2>{{ content.repo_name || content.title }}</h2>
-        <p>{{ content.repo_description }}</p>
-        <div class="repo-meta">
-          <span v-if="content.repo_language"
-            ><i class="status-dot" />{{ content.repo_language }}</span
-          ><span v-if="content.repo_updated_at"
-            >最近推送 {{ formatDate(content.repo_updated_at) }}</span
-          >
-        </div>
-      </div>
-      <div class="project-links">
-        <a
-          v-if="content.repo_url"
-          :href="content.repo_url"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="btn primary"
-          ><Icon name="github" :size="16" />GitHub 仓库<Icon
-            name="arrow"
-            :size="15" /></a
-        ><a
-          v-if="content.demo_url"
-          :href="content.demo_url"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="btn secondary"
-          >在线体验<Icon name="arrow" :size="15" /></a
-        ><a
-          v-if="content.docs_url"
-          :href="content.docs_url"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="btn secondary"
-          >项目文档<Icon name="arrow" :size="15" /></a
-        ><a
-          v-if="content.release_url"
-          :href="content.release_url"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="btn secondary"
-          >版本与下载<Icon name="arrow" :size="15"
-        /></a>
-      </div>
-    </div>
+    <RepoPanel v-if="isProject" :content="content" />
     <img
       v-if="content.cover_url"
       class="detail-cover"

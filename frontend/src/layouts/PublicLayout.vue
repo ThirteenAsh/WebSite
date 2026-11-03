@@ -183,7 +183,7 @@ watch(
       <div>
         <strong>{{ site.settings?.name || "ThirteenAsh" }}</strong
         ><span
-          >© {{ new Date().getFullYear() }} · 用代码和文字，留住一些片刻。</span
+          >© {{ new Date().getFullYear() }} · 总想留下些什么。</span
         >
       </div>
       <div class="footer-links">

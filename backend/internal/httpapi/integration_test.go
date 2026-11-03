@@ -68,6 +68,19 @@ func TestIntegration(t *testing.T) {
 	if e = db.QueryRow("SELECT COUNT(*) FROM contents").Scan(&seedCount); e != nil || seedCount != 4 {
 		t.Fatalf("迁入应为4个项目，实际 %d: %v", seedCount, e)
 	}
+	// 模拟已有站点升级：旧作品没有自定义字段，升级后仍应使用原始仓库信息。
+	if _, e = db.Exec("ALTER TABLE contents DROP COLUMN repo_overrides"); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 2; i++ {
+		if e = database.Migrate(db); e != nil {
+			t.Fatalf("已有数据库升级: %v", e)
+		}
+	}
+	legacy, e := repository.ScanContent(db.QueryRow("SELECT " + repository.ContentColumns + " FROM contents ORDER BY id LIMIT 1"))
+	if e != nil || legacy.RepoName != "key-switch" || legacy.RepoOverrides.Name != nil {
+		t.Fatalf("升级改变了旧作品: %+v %v", legacy, e)
+	}
 	hash, _ := bcrypt.GenerateFromPassword([]byte("test-password-2026"), bcrypt.MinCost)
 	if _, e = db.Exec("INSERT INTO admins(username,password_hash) VALUES('tester',?)", hash); e != nil {
 		t.Fatal(e)
@@ -195,6 +208,42 @@ func TestIntegration(t *testing.T) {
 		request(admin, "PUT", fmt.Sprintf("/api/admin/contents/%d", contentID), c, 200, csrf)
 		request(admin, "GET", "/api/admin/contents?status=published&kind=article", nil, 200, csrf)
 	})
+	t.Run("首页正文预览有长度限制且不暴露草稿", func(t *testing.T) {
+		c := model.Content{Kind: "article", Title: "首页正文预览验收", Summary: "不同于正文的手写摘要", Body: "## 正文开头\n\n" + strings.Repeat("中文正文与🌿配图记录。", 300), Status: "draft"}
+		var saved struct {
+			ID int64 `json:"id"`
+		}
+		_ = json.Unmarshal(request(admin, "POST", "/api/admin/contents", c, 201, csrf), &saved)
+		path := fmt.Sprintf("/api/admin/contents/%d", saved.ID)
+		defer request(admin, "DELETE", path, nil, 200, csrf)
+		var result struct {
+			Items []model.Content `json:"items"`
+			Total int             `json:"total"`
+		}
+		previewPath := "/api/contents?kind=writing&preview=1&q=首页正文预览验收"
+		_ = json.Unmarshal(request(visitor, "GET", previewPath, nil, 200, ""), &result)
+		if result.Total != 0 {
+			t.Fatal("草稿泄漏到正文预览")
+		}
+		c.Status = "published"
+		request(admin, "PUT", path, c, 200, csrf)
+		_ = json.Unmarshal(request(visitor, "GET", previewPath, nil, 200, ""), &result)
+		if len(result.Items) != 1 || result.Items[0].Body != "" || result.Items[0].BodyPreview != string([]rune(c.Body)[:2000]) {
+			t.Fatalf("预览丢失、未截断或包含完整正文: %+v", result)
+		}
+		for _, listPath := range []string{"/api/contents?kind=writing&q=首页正文预览验收", "/api/admin/contents?preview=1&q=首页正文预览验收"} {
+			result.Items = nil
+			_ = json.Unmarshal(request(admin, "GET", listPath, nil, 200, csrf), &result)
+			if len(result.Items) != 1 || result.Items[0].Body != "" || result.Items[0].BodyPreview != "" {
+				t.Fatalf("常规列表返回了正文预览: %s %+v", listPath, result)
+			}
+		}
+		var detail model.Content
+		_ = json.Unmarshal(request(visitor, "GET", fmt.Sprintf("/api/contents/%d", saved.ID), nil, 200, ""), &detail)
+		if detail.Body != c.Body {
+			t.Fatal("完整正文被截断")
+		}
+	})
 	t.Run("点赞幂等取消和并发", func(t *testing.T) {
 		path := fmt.Sprintf("/api/contents/%d/like", contentID)
 		request(visitor, "PUT", path, map[string]bool{"liked": true}, 200, "")
@@ -319,6 +368,15 @@ func TestIntegration(t *testing.T) {
 		if _, e := db.Exec("UPDATE contents SET title='手写项目名',summary='手写摘要',body='手写正文',sort_order=7,featured=1 WHERE id=?", id); e != nil {
 			t.Fatal(e)
 		}
+		path := fmt.Sprintf("/api/admin/contents/%d", id)
+		var edited model.Content
+		if e := json.Unmarshal(request(admin, "GET", path, nil, 200, csrf), &edited); e != nil {
+			t.Fatal(e)
+		}
+		name, description, url, date, hidden := "自定义仓库卡片名", "可搜索的卡片简介", "https://example.com/repo", "2026-09-01T00:00:00+08:00", ""
+		edited.RepoOverrides = model.RepoOverrides{Name: &name, Description: &description, Language: &hidden, URL: &url, UpdatedAt: &date}
+		edited.ReleaseURL = "https://example.com/download"
+		request(admin, "PUT", path, edited, 200, csrf)
 		raw = request(admin, "POST", "/api/admin/github/sync", nil, 200, csrf)
 		var result syncResult
 		_ = json.Unmarshal(raw, &result)
@@ -332,7 +390,75 @@ func TestIntegration(t *testing.T) {
 		if c.Title != "手写项目名" || c.Summary != "手写摘要" || c.Body != "手写正文" || c.Status != "draft" || !c.Featured || c.SortOrder != 7 || c.RepoDescription != "来自同步的仓库描述" {
 			t.Fatalf("同步覆盖了展示字段: %+v", c)
 		}
+		overrides := c.RepoOverrides
+		if overrides.Name == nil || *overrides.Name != name || overrides.Description == nil || *overrides.Description != description || overrides.Language == nil || *overrides.Language != "" || overrides.URL == nil || *overrides.URL != url || overrides.UpdatedAt == nil || *overrides.UpdatedAt != date || c.ReleaseURL != edited.ReleaseURL {
+			t.Fatalf("同步覆盖了仓库卡片自定义字段: %+v", overrides)
+		}
+		for _, group := range []struct {
+			kind    string
+			project bool
+		}{{"project", true}, {"writing", false}, {"article", false}, {"moment", false}} {
+			var list struct {
+				Items []model.Content `json:"items"`
+			}
+			_ = json.Unmarshal(request(admin, "GET", "/api/admin/contents?kind="+group.kind, nil, 200, csrf), &list)
+			for _, item := range list.Items {
+				if (item.Kind == "project") != group.project {
+					t.Fatalf("管理分组混入了其他内容: %s %+v", group.kind, item)
+				}
+			}
+		}
+		var search struct {
+			Total int `json:"total"`
+		}
+		_ = json.Unmarshal(request(admin, "GET", "/api/admin/contents?kind=project&q=可搜索的卡片简介", nil, 200, csrf), &search)
+		if search.Total != 1 {
+			t.Fatal("自定义仓库信息无法搜索")
+		}
+		// 旧客户端不传自定义字段时保留已有配置；传空对象时恢复 GitHub。
+		encoded, _ := json.Marshal(edited)
+		var oldClient map[string]any
+		_ = json.Unmarshal(encoded, &oldClient)
+		delete(oldClient, "repo_overrides")
+		request(admin, "PUT", path, oldClient, 200, csrf)
+		_ = json.Unmarshal(request(admin, "GET", path, nil, 200, csrf), &c)
+		if c.RepoOverrides.Name == nil || *c.RepoOverrides.Name != name {
+			t.Fatal("未提供自定义字段时丢失了配置")
+		}
+		edited.RepoOverrides = model.RepoOverrides{}
+		request(admin, "PUT", path, edited, 200, csrf)
+		var reset model.Content
+		_ = json.Unmarshal(request(admin, "GET", path, nil, 200, csrf), &reset)
+		if reset.RepoOverrides.Name != nil || reset.RepoOverrides.Language != nil || reset.RepoName != "fixture-repo" {
+			t.Fatal("无法恢复 GitHub 信息")
+		}
 		request(visitor, "GET", fmt.Sprintf("/api/contents/%d", id), nil, 404, "")
+	})
+	t.Run("手动作品仓库卡片及输入校验", func(t *testing.T) {
+		stringPointer := func(s string) *string { return &s }
+		name, description, url, date := "独立作品的仓库", "独立作品简介", "https://example.com/source", "2026-11-02T00:00:00+08:00"
+		c := model.Content{Kind: "project", Title: "手动作品", Status: "published", RepoOverrides: model.RepoOverrides{Name: &name, Description: &description, URL: &url, UpdatedAt: &date}}
+		raw := request(admin, "POST", "/api/admin/contents", c, 201, csrf)
+		var saved struct {
+			ID int64 `json:"id"`
+		}
+		_ = json.Unmarshal(raw, &saved)
+		path := fmt.Sprintf("/api/admin/contents/%d", saved.ID)
+		var public model.Content
+		_ = json.Unmarshal(request(visitor, "GET", fmt.Sprintf("/api/contents/%d", saved.ID), nil, 200, ""), &public)
+		if public.RepoOverrides.Name == nil || *public.RepoOverrides.Name != name || public.RepoFullName != "" {
+			t.Fatalf("手动卡片未保存或伪造同步来源: %+v", public)
+		}
+		for _, invalid := range []model.RepoOverrides{
+			{URL: stringPointer("javascript:alert(1)")},
+			{UpdatedAt: stringPointer("2026-02-30T00:00:00Z")},
+			{Name: stringPointer(strings.Repeat("字", 256))},
+		} {
+			c.RepoOverrides = invalid
+			request(admin, "PUT", path, c, 400, csrf)
+			request(admin, "POST", "/api/admin/contents", c, 400, csrf)
+		}
+		request(admin, "DELETE", path, nil, 200, csrf)
 	})
 	t.Run("每日任务去重及停机补执行", func(t *testing.T) {
 		app.cfg.SyncHour = 0

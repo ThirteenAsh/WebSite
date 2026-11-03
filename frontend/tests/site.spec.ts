@@ -40,7 +40,20 @@ test("纸面下拉选择、键盘操作和禁用状态", async ({ page }) => {
     await page.request.get("/api/admin/contents?kind=project&limit=1")
   ).json();
   await page.goto(`/admin/contents/${projects.items[0].id}`);
-  await expect(page.getByRole("combobox", { name: "内容形式" })).toBeDisabled();
+  await expect(page).toHaveURL(
+    new RegExp(`/admin/projects/${projects.items[0].id}$`),
+  );
+  await expect(page.getByRole("combobox", { name: "内容形式" })).toHaveCount(0);
+  const repoName = page.getByLabel("仓库显示名称", { exact: true });
+  const originalName = await repoName.inputValue();
+  await repoName.fill("暂存的仓库显示名");
+  await page
+    .getByRole("button", {
+      name: "仓库显示名称：恢复 GitHub 信息",
+      exact: true,
+    })
+    .click();
+  await expect(repoName).toHaveValue(originalName);
   await page.goto("/admin/contents/new");
   await page.getByRole("combobox", { name: "内容形式" }).click();
   await page.getByRole("option", { name: "短动态", exact: true }).click();
@@ -58,6 +71,171 @@ test("纸面下拉选择、键盘操作和禁用状态", async ({ page }) => {
     path: "../.local/paper-select-editor.png",
     fullPage: true,
   });
+});
+
+test("作品独立管理与仓库卡片编辑、隐藏和恢复", async ({ page, browser }) => {
+  const marker = `作品管理验收-${Date.now()}`;
+  let id = 0;
+  let writingID = 0;
+  let token = "";
+  const visitor = await browser.newContext({
+    baseURL: process.env.E2E_BASE_URL || "http://127.0.0.1:5173",
+  });
+  const publicPage = await visitor.newPage();
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  publicPage.on("pageerror", (error) => errors.push(error.message));
+  async function saveChanges() {
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().endsWith(`/api/admin/contents/${id}`) &&
+          r.request().method() === "PUT",
+      ),
+      page.getByRole("button", { name: "保存并更新", exact: true }).click(),
+    ]);
+    expect(response.ok()).toBeTruthy();
+  }
+  try {
+    await login(page, "/admin/projects/new");
+    token = await csrf(page.request);
+    await expect(page.getByRole("combobox", { name: "内容形式" })).toHaveCount(
+      0,
+    );
+    await page.locator(".title-input").fill(marker);
+    await page.getByLabel("仓库显示名称", { exact: true }).fill("自定义仓库名");
+    await page
+      .getByLabel("仓库卡片描述", { exact: true })
+      .fill("单独维护的仓库描述");
+    await page.getByLabel("主要语言", { exact: true }).fill("TypeScript");
+    await page.getByLabel("最近推送日期", { exact: true }).fill("2026-10-30");
+    await page
+      .getByLabel("仓库按钮链接", { exact: true })
+      .fill("https://github.com/example/project");
+    await page
+      .getByLabel("版本与下载链接", { exact: true })
+      .fill("https://example.com/download");
+    await page
+      .getByLabel("在线体验链接", { exact: true })
+      .fill("https://example.com/demo");
+    await page
+      .getByLabel("项目文档链接", { exact: true })
+      .fill("https://example.com/docs");
+    await page.getByLabel("设为首页精选").check();
+    await expect(page.locator(".repo-card-editor .repo-panel h2")).toHaveText(
+      "自定义仓库名",
+    );
+    await page.screenshot({
+      path: "../.local/project-editor.png",
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "发布作品", exact: true }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/\d+$/);
+    id = Number(page.url().split("/").pop());
+    await page.reload();
+    await expect(page.getByLabel("仓库显示名称", { exact: true })).toHaveValue(
+      "自定义仓库名",
+    );
+    await expect(page.getByLabel("最近推送日期", { exact: true })).toHaveValue(
+      "2026-10-30",
+    );
+    const created = await page.request.post("/api/admin/contents", {
+      headers: { "X-CSRF-Token": token },
+      data: {
+        kind: "article",
+        title: `${marker}-文章`,
+        body: "独立的文章",
+        status: "draft",
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+    writingID = (await created.json()).id;
+    await page.goto(`/admin/projects?q=${encodeURIComponent(marker)}`);
+    await expect(page.locator(".content-table tbody tr")).toHaveCount(1);
+    await expect(page.locator(".table-title")).toHaveText(marker);
+    await page.getByRole("link", { name: "首页精选", exact: true }).click();
+    await expect(page.locator(".table-title")).toHaveText(marker);
+    await page.screenshot({
+      path: "../.local/project-management.png",
+      fullPage: true,
+    });
+    await page.goto(`/admin/contents?q=${encodeURIComponent(marker)}`);
+    await expect(page.locator(".content-table tbody tr")).toHaveCount(1);
+    await expect(page.locator(".table-title")).toHaveText(`${marker}-文章`);
+    await page.getByRole("combobox", { name: "内容形式" }).click();
+    await expect(
+      page.getByRole("option", { name: "项目", exact: true }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.screenshot({
+      path: "../.local/writing-management.png",
+      fullPage: true,
+    });
+    await publicPage.goto(`/search?q=${encodeURIComponent(marker)}`);
+    await expect(publicPage.locator(".project-repo-name")).toHaveText(
+      "自定义仓库名",
+    );
+    await expect(publicPage.locator(".project-date time")).toHaveText(
+      "2026.10.30",
+    );
+    await publicPage.goto(`/projects/${id}`);
+    await expect(publicPage.locator(".repo-panel h2")).toHaveText(
+      "自定义仓库名",
+    );
+    await expect(publicPage.locator(".repo-panel p")).toHaveText(
+      "单独维护的仓库描述",
+    );
+    await expect(publicPage.locator(".repo-meta")).toContainText("TypeScript");
+    await expect(publicPage.locator(".repo-meta")).toContainText("2026.10.30");
+    await expect(publicPage.locator(".repo-panel a")).toHaveCount(4);
+    await expect(
+      publicPage.getByRole("link", { name: "GitHub 仓库" }),
+    ).toHaveAttribute("href", "https://github.com/example/project");
+    await publicPage.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await publicPage.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+    await publicPage.screenshot({
+      path: "../.local/custom-repo-mobile.png",
+      fullPage: true,
+    });
+    await page.goto(`/admin/projects/${id}`);
+    await page.getByLabel("主要语言", { exact: true }).fill("");
+    await page.getByLabel("最近推送日期", { exact: true }).fill("");
+    await page.getByLabel("仓库按钮链接", { exact: true }).fill("");
+    await saveChanges();
+    await expect(page.locator(".toast")).toContainText("作品已发布");
+    await publicPage.reload();
+    await expect(publicPage.locator(".repo-meta")).toHaveCount(0);
+    await expect(
+      publicPage.getByRole("link", { name: "GitHub 仓库" }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", {
+        name: "仓库显示名称：恢复默认",
+        exact: true,
+      })
+      .click();
+    await expect(page.locator(".repo-card-editor .repo-panel h2")).toHaveText(
+      marker,
+    );
+    await saveChanges();
+    await expect(
+      page.getByRole("button", {
+        name: "仓库显示名称：恢复默认",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await publicPage.reload();
+    await expect(publicPage.locator(".repo-panel h2")).toHaveText(marker);
+    expect(errors).toEqual([]);
+  } finally {
+    if (id && token) await deleteContent(page.request, id, token);
+    if (writingID && token) await deleteContent(page.request, writingID, token);
+    await visitor.close();
+  }
 });
 async function login(page: Page, next = "/admin") {
   await page.goto(next);
@@ -94,7 +272,10 @@ test("公开页面、深浅色和移动端布局", async ({ page }) => {
   await expect(
     page.locator(".project-card .repository-link").first(),
   ).toHaveAttribute("target", "_blank");
-  await expect(page.locator("h1")).toContainText("把过程留在这里");
+  const { settings } = await (await page.request.get("/api/site")).json();
+  await expect(page.locator(".intro-copy h1")).toContainText(
+    settings.hero_highlight,
+  );
   await page.getByRole("button", { name: "切换为深色模式" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();

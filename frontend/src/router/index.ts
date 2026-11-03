@@ -65,24 +65,52 @@ const router = createRouter({
       children: [
         { path: "", component: DashboardView, meta: { title: "工作台" } },
         {
+          path: "projects",
+          component: ManageView,
+          props: { section: "projects" },
+          meta: { title: "作品管理", section: "projects" },
+        },
+        {
+          path: "projects/new",
+          component: EditorView,
+          meta: { title: "新建作品", section: "projects" },
+        },
+        {
+          path: "projects/:id",
+          component: EditorView,
+          meta: { title: "编辑作品", section: "projects" },
+        },
+        {
           path: "contents",
           component: ManageView,
-          meta: { title: "内容管理" },
+          props: { section: "writings" },
+          beforeEnter: (to) =>
+            to.query.kind === "project"
+              ? {
+                  path: "/admin/projects",
+                  query: { ...to.query, kind: undefined },
+                }
+              : true,
+          meta: { title: "文章与日常", section: "writings" },
         },
         {
           path: "contents/new",
           component: EditorView,
-          meta: { title: "新建内容" },
+          beforeEnter: (to) =>
+            to.query.kind === "project"
+              ? { path: "/admin/projects/new" }
+              : true,
+          meta: { title: "新建记录", section: "writings" },
         },
         {
           path: "contents/:id",
           component: EditorView,
-          meta: { title: "编辑内容" },
+          meta: { title: "编辑记录", section: "writings" },
         },
         {
           path: "github",
           component: GitHubView,
-          meta: { title: "GitHub 项目" },
+          meta: { title: "GitHub 导入与同步", section: "projects" },
         },
         { path: "media", component: MediaView, meta: { title: "图片库" } },
         {

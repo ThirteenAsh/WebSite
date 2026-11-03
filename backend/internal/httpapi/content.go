@@ -57,7 +57,7 @@ func (a *Server) listContents(w http.ResponseWriter, r *http.Request, admin bool
 	}
 	if q != "" {
 		pattern := "%" + strings.NewReplacer("=", "==", "%", "=%", "_", "=_").Replace(q) + "%"
-		where = append(where, `(title LIKE ? ESCAPE '=' OR summary LIKE ? ESCAPE '=' OR body LIKE ? ESCAPE '=' OR repo_name LIKE ? ESCAPE '=' OR repo_description LIKE ? ESCAPE '=')`)
+		where = append(where, `(title LIKE ? ESCAPE '=' OR summary LIKE ? ESCAPE '=' OR body LIKE ? ESCAPE '=' OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(repo_overrides,'$.name')),repo_name) LIKE ? ESCAPE '=' OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(repo_overrides,'$.description')),repo_description) LIKE ? ESCAPE '=')`)
 		for i := 0; i < 5; i++ {
 			args = append(args, pattern)
 		}
@@ -91,6 +91,11 @@ func (a *Server) listContents(w http.ResponseWriter, r *http.Request, admin bool
 			return
 		}
 		if c.Kind != "moment" {
+			if !admin && c.Kind == "article" && r.URL.Query().Get("preview") == "1" {
+				// 首页只取一段正文，完整正文仍通过详情接口读取。
+				runes := []rune(c.Body)
+				c.BodyPreview = string(runes[:min(len(runes), 2000)])
+			}
 			c.Body = ""
 		}
 		items = append(items, c)
@@ -215,7 +220,8 @@ func (a *Server) updateContent(w http.ResponseWriter, r *http.Request) {
 	}
 	images, _ := json.Marshal(c.Images)
 	stack, _ := json.Marshal(c.TechStack)
-	_, e = tx.ExecContext(r.Context(), `UPDATE contents SET label=?,title=?,summary=?,body=?,cover_url=?,images=?,tech_stack=?,status=?,featured=?,sort_order=?,demo_url=?,docs_url=?,release_url=?,published_at=? WHERE id=?`, c.Label, c.Title, c.Summary, c.Body, c.CoverURL, images, stack, c.Status, c.Featured, c.SortOrder, c.DemoURL, c.DocsURL, c.ReleaseURL, published, id)
+	overrides, _ := json.Marshal(c.RepoOverrides)
+	_, e = tx.ExecContext(r.Context(), `UPDATE contents SET label=?,title=?,summary=?,body=?,cover_url=?,images=?,tech_stack=?,status=?,featured=?,sort_order=?,demo_url=?,docs_url=?,release_url=?,published_at=?,repo_overrides=IF(?, ?, repo_overrides) WHERE id=?`, c.Label, c.Title, c.Summary, c.Body, c.CoverURL, images, stack, c.Status, c.Featured, c.SortOrder, c.DemoURL, c.DocsURL, c.ReleaseURL, published, input.RepoOverrides != nil, overrides, id)
 	if e != nil {
 		serverError(w, e)
 		return

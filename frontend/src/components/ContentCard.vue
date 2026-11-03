@@ -1,13 +1,25 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref } from "vue";
 import { api, ensureVisitor } from "../lib/api";
 import type { Content } from "../lib/types";
-import { contentPath, formatDate } from "../lib/types";
+import { contentPath, formatDate, repoDisplay } from "../lib/types";
+import { markdownExcerpt } from "../lib/markdown";
 import Icon from "./Icon.vue";
 import LikeButton from "./LikeButton.vue";
 import MarkdownBody from "./MarkdownBody.vue";
 import Gallery from "./Gallery.vue";
-const props = defineProps<{ content: Content; index?: number }>();
+const props = defineProps<{
+  content: Content;
+  index?: number;
+  homePreview?: boolean;
+}>();
+const repo = computed(() => repoDisplay(props.content));
+const bodyPreview = computed(
+  () =>
+    markdownExcerpt(props.content.body_preview || "", 600) ||
+    props.content.summary ||
+    "打开这篇文章，继续阅读。",
+);
 const card = ref<HTMLElement>(),
   views = ref(props.content.view_count);
 let observer: IntersectionObserver | undefined;
@@ -38,13 +50,12 @@ onBeforeUnmount(() => observer?.disconnect());
   <article v-if="content.kind === 'project'" class="project-card paper-card">
     <aside class="project-date">
       <strong>项目 {{ String(content.id).padStart(2, "0") }}</strong>
-      <span>{{ content.repo_updated_at ? "仓库更新" : "发布于" }}</span>
-      <time
-        :datetime="content.repo_updated_at || content.published_at || undefined"
-        >{{ formatDate(content.repo_updated_at || content.published_at) }}</time
-      >
+      <span>{{ repo.updated_at ? "仓库更新" : "发布于" }}</span>
+      <time :datetime="repo.updated_at || content.published_at || undefined">{{
+        formatDate(repo.updated_at || content.published_at)
+      }}</time>
       <span class="project-category">{{
-        content.label || content.repo_language || "独立项目"
+        content.label || repo.language || "独立项目"
       }}</span>
     </aside>
     <div class="project-main">
@@ -52,18 +63,16 @@ onBeforeUnmount(() => observer?.disconnect());
         <span
           class="badge"
           :class="{ orange: content.label !== 'AI 与实验' }"
-          >{{ content.label || content.repo_language || "独立项目" }}</span
+          >{{ content.label || repo.language || "独立项目" }}</span
         ><span class="project-repo-name">{{
-          content.repo_name || "PROJECT"
+          repo.name || content.title || "PROJECT"
         }}</span>
       </div>
       <RouterLink :to="contentPath(content)" class="card-title"
         ><h3>{{ content.title }}</h3></RouterLink
       >
       <p class="project-description">
-        {{
-          content.summary || content.repo_description || "这个想法正在生长。"
-        }}
+        {{ content.summary || repo.description || "这个想法正在生长。" }}
       </p>
       <div class="project-card-bottom">
         <div class="tech-tags">
@@ -71,8 +80,8 @@ onBeforeUnmount(() => observer?.disconnect());
         </div>
         <div class="project-card-actions">
           <a
-            v-if="content.repo_url"
-            :href="content.repo_url"
+            v-if="repo.url"
+            :href="repo.url"
             target="_blank"
             rel="noopener noreferrer"
             class="project-pill repository-link"
@@ -136,8 +145,16 @@ onBeforeUnmount(() => observer?.disconnect());
         ><h3>{{ content.title }}</h3></RouterLink
       >
       <MarkdownBody v-if="content.kind === 'moment'" :source="content.body" />
-      <p v-else class="writing-summary">
-        {{ content.summary || "打开这篇文章，继续阅读。" }}
+      <p
+        v-else
+        class="writing-summary"
+        :class="{ 'writing-body-preview': homePreview }"
+      >
+        {{
+          homePreview
+            ? bodyPreview
+            : content.summary || "打开这篇文章，继续阅读。"
+        }}
       </p>
       <RouterLink
         v-if="content.cover_url && content.kind !== 'moment'"

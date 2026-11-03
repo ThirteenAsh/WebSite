@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"thirteenash/internal/model"
@@ -11,24 +12,29 @@ import (
 
 // 写入请求只接收可编辑字段，系统时间、统计和 GitHub 元数据由服务端维护。
 type contentInput struct {
-	Kind       string   `json:"kind"`
-	Label      string   `json:"label"`
-	Title      string   `json:"title"`
-	Summary    string   `json:"summary"`
-	Body       string   `json:"body"`
-	CoverURL   string   `json:"cover_url"`
-	Images     []string `json:"images"`
-	TechStack  []string `json:"tech_stack"`
-	Status     string   `json:"status"`
-	Featured   bool     `json:"featured"`
-	SortOrder  int      `json:"sort_order"`
-	DemoURL    string   `json:"demo_url"`
-	DocsURL    string   `json:"docs_url"`
-	ReleaseURL string   `json:"release_url"`
+	Kind          string               `json:"kind"`
+	Label         string               `json:"label"`
+	Title         string               `json:"title"`
+	Summary       string               `json:"summary"`
+	Body          string               `json:"body"`
+	CoverURL      string               `json:"cover_url"`
+	Images        []string             `json:"images"`
+	TechStack     []string             `json:"tech_stack"`
+	Status        string               `json:"status"`
+	Featured      bool                 `json:"featured"`
+	SortOrder     int                  `json:"sort_order"`
+	DemoURL       string               `json:"demo_url"`
+	DocsURL       string               `json:"docs_url"`
+	ReleaseURL    string               `json:"release_url"`
+	RepoOverrides *model.RepoOverrides `json:"repo_overrides"`
 }
 
 func (v contentInput) content() model.Content {
-	return model.Content{Kind: v.Kind, Label: v.Label, Title: v.Title, Summary: v.Summary, Body: v.Body, CoverURL: v.CoverURL, Images: v.Images, TechStack: v.TechStack, Status: v.Status, Featured: v.Featured, SortOrder: v.SortOrder, DemoURL: v.DemoURL, DocsURL: v.DocsURL, ReleaseURL: v.ReleaseURL}
+	c := model.Content{Kind: v.Kind, Label: v.Label, Title: v.Title, Summary: v.Summary, Body: v.Body, CoverURL: v.CoverURL, Images: v.Images, TechStack: v.TechStack, Status: v.Status, Featured: v.Featured, SortOrder: v.SortOrder, DemoURL: v.DemoURL, DocsURL: v.DocsURL, ReleaseURL: v.ReleaseURL}
+	if v.RepoOverrides != nil {
+		c.RepoOverrides = *v.RepoOverrides
+	}
+	return c
 }
 
 func validURL(value string, image bool) bool {
@@ -91,6 +97,34 @@ func validateContent(c *model.Content) error {
 	}
 	if c.Kind != "project" {
 		c.Featured = false
+		c.RepoOverrides = model.RepoOverrides{}
+		return nil
+	}
+	return validateRepoOverrides(&c.RepoOverrides)
+}
+
+func validateRepoOverrides(v *model.RepoOverrides) error {
+	for _, field := range []struct {
+		value *string
+		limit int
+	}{{v.Name, 255}, {v.Description, 2000}, {v.Language, 100}} {
+		if field.value != nil {
+			*field.value = strings.TrimSpace(*field.value)
+			if utf8.RuneCountInString(*field.value) > field.limit {
+				return errors.New("仓库名称、描述或主要语言过长")
+			}
+		}
+	}
+	if v.URL != nil {
+		*v.URL = strings.TrimSpace(*v.URL)
+		if !validURL(*v.URL, false) {
+			return errors.New("仓库链接必须是 http 或 https 地址")
+		}
+	}
+	if v.UpdatedAt != nil && *v.UpdatedAt != "" {
+		if _, err := time.Parse(time.RFC3339, *v.UpdatedAt); err != nil {
+			return errors.New("仓库推送日期无效")
+		}
 	}
 	return nil
 }

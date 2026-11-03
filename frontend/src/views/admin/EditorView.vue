@@ -14,7 +14,12 @@ import {
   useRouter,
 } from "vue-router";
 import { api, notify, errorMessage } from "../../lib/api";
-import { blankContent, contentPath, type Content } from "../../lib/types";
+import {
+  blankContent,
+  contentPath,
+  adminContentPath,
+  type Content,
+} from "../../lib/types";
 import { markdownExcerpt } from "../../lib/markdown";
 import Icon from "../../components/Icon.vue";
 import MarkdownBody from "../../components/MarkdownBody.vue";
@@ -22,6 +27,7 @@ import ImageField from "../../components/ImageField.vue";
 import MediaPicker from "../../components/MediaPicker.vue";
 import Gallery from "../../components/Gallery.vue";
 import PaperSelect from "../../components/PaperSelect.vue";
+import RepoCardEditor from "../../components/RepoCardEditor.vue";
 const route = useRoute(),
   router = useRouter(),
   content = ref<Content>(blankContent()),
@@ -42,6 +48,11 @@ const dirty = computed(
     baseline.value !== "" &&
     serialized.value !== baseline.value,
 );
+const isProject = computed(() => route.meta.section === "projects");
+const listPath = computed(() =>
+  isProject.value ? "/admin/projects" : "/admin/contents",
+);
+const listLabel = computed(() => (isProject.value ? "作品管理" : "文章与日常"));
 async function load() {
   loading.value = true;
   error.value = "";
@@ -49,12 +60,18 @@ async function load() {
     content.value = route.params.id
       ? await api<Content>(`/admin/contents/${route.params.id}`)
       : blankContent(
-          route.query.kind === "moment"
-            ? "moment"
-            : route.query.kind === "project"
-              ? "project"
+          isProject.value
+            ? "project"
+            : route.query.kind === "moment"
+              ? "moment"
               : "article",
         );
+    if (route.params.id && route.path !== adminContentPath(content.value)) {
+      baseline.value = "";
+      await router.replace(adminContentPath(content.value));
+      return;
+    }
+    content.value.repo_overrides ||= {};
     stack.value = content.value.tech_stack.join(", ");
     baseline.value = serialized.value;
   } catch (e) {
@@ -63,7 +80,9 @@ async function load() {
     loading.value = false;
   }
 }
-watch(() => [route.params.id, route.query.kind], load, { immediate: true });
+watch(() => [route.params.id, route.query.kind, route.meta.section], load, {
+  immediate: true,
+});
 async function save(status: Content["status"]) {
   if (busy.value) return;
   const c = JSON.parse(JSON.stringify(content.value)) as Content;
@@ -91,8 +110,14 @@ async function save(status: Content["status"]) {
     );
     content.value = { ...c, id: saved.id };
     baseline.value = serialized.value;
-    notify(status === "published" ? "内容已发布" : "已保存到草稿箱");
-    if (isNew) await router.replace(`/admin/contents/${saved.id}`);
+    notify(
+      status === "published"
+        ? isProject.value
+          ? "作品已发布"
+          : "内容已发布"
+        : "已保存到草稿箱",
+    );
+    if (isNew) await router.replace(adminContentPath(content.value));
   } catch (e) {
     notify(errorMessage(e), "error");
   } finally {
@@ -147,7 +172,11 @@ onBeforeRouteLeave(
   () => !dirty.value || confirm("还有未保存的修改，确定离开吗？"),
 );
 onBeforeRouteUpdate((to, from) => {
-  if (to.params.id === from.params.id && to.query.kind === from.query.kind)
+  if (
+    to.params.id === from.params.id &&
+    to.query.kind === from.query.kind &&
+    to.meta.section === from.meta.section
+  )
     return true;
   return !dirty.value || confirm("还有未保存的修改，确定离开吗？");
 });
@@ -156,15 +185,25 @@ onBeforeRouteUpdate((to, from) => {
   <div v-if="loading" class="loading-panel">正在打开编辑器…</div>
   <div v-else-if="error" class="error-panel" role="alert">
     {{ error }} <button class="text-link" @click="load">重试</button
-    ><RouterLink to="/admin/contents">返回内容管理</RouterLink>
+    ><RouterLink :to="listPath">返回{{ listLabel }}</RouterLink>
   </div>
   <template v-else
     ><div class="editor-heading">
       <div>
-        <RouterLink to="/admin/contents" class="text-link"
-          ><Icon name="back" :size="16" />内容管理</RouterLink
+        <RouterLink :to="listPath" class="text-link"
+          ><Icon name="back" :size="16" />{{ listLabel }}</RouterLink
         >
-        <h1>{{ content.id ? "继续写下去。" : "今天，写点什么？" }}</h1>
+        <h1>
+          {{
+            isProject
+              ? content.id
+                ? "编辑作品"
+                : "添加一件新作品。"
+              : content.id
+                ? "继续写下去。"
+                : "今天，写点什么？"
+          }}
+        </h1>
         <span class="muted small-text"
           >{{
             dirty
@@ -197,7 +236,9 @@ onBeforeRouteUpdate((to, from) => {
               ? "正在保存…"
               : content.status === "published"
                 ? "保存并更新"
-                : "发布内容"
+                : isProject
+                  ? "发布作品"
+                  : "发布内容"
           }}
         </button>
       </div>
@@ -206,7 +247,7 @@ onBeforeRouteUpdate((to, from) => {
       <div class="editor-content">
         <section class="admin-panel editor-basics">
           <div class="form-row">
-            <label
+            <label v-if="!isProject"
               >内容形式<PaperSelect
                 v-model="content.kind"
                 label="内容形式"
@@ -214,14 +255,17 @@ onBeforeRouteUpdate((to, from) => {
                 :options="[
                   { value: 'article', label: '长文章 / 随笔' },
                   { value: 'moment', label: '短动态' },
-                  { value: 'project', label: '项目介绍' },
                 ]" /></label
             ><label
               >内容标记 <span class="optional">可选，不是分类</span
               ><input
                 v-model="content.label"
                 maxlength="40"
-                placeholder="例如：技术笔记、生活随笔"
+                :placeholder="
+                  isProject
+                    ? '例如：桌面工具、开源项目'
+                    : '例如：技术笔记、生活随笔'
+                "
             /></label>
           </div>
           <label
@@ -230,17 +274,24 @@ onBeforeRouteUpdate((to, from) => {
               v-model="content.title"
               class="title-input"
               maxlength="200"
-              placeholder="给这篇记录起个名字…" /></label
+              :placeholder="
+                isProject ? '给作品起个名字…' : '给这篇记录起个名字…'
+              " /></label
           ><label v-if="content.kind !== 'moment'"
             >摘要 <span class="optional">留空时从正文提取</span
             ><textarea
               v-model="content.summary"
               rows="2"
               maxlength="2000"
-              placeholder="用几句话，介绍这篇内容。"
+              :placeholder="
+                isProject
+                  ? '用几句话，介绍这个作品。'
+                  : '用几句话，介绍这篇内容。'
+              "
             />
           </label>
         </section>
+        <RepoCardEditor v-if="isProject" v-model="content" />
         <section class="admin-panel markdown-editor">
           <div class="editor-toolbar">
             <div>
@@ -378,28 +429,13 @@ onBeforeRouteUpdate((to, from) => {
               max="100000" /></label
           ><label
             >技术栈 <span class="optional">用逗号分隔</span
-            ><input v-model="stack" placeholder="Vue, Go, MySQL" /></label
-          ><label
-            >在线体验<input
-              v-model="content.demo_url"
-              type="url"
-              placeholder="https://" /></label
-          ><label
-            >项目文档<input
-              v-model="content.docs_url"
-              type="url"
-              placeholder="https://" /></label
-          ><label
-            >版本与下载<input
-              v-model="content.release_url"
-              type="url"
-              placeholder="https://"
+            ><input v-model="stack" placeholder="Vue, Go, MySQL"
           /></label>
           <div v-if="content.repo_full_name" class="repo-source">
             <strong>已关联 GitHub</strong
             ><span>{{ content.repo_full_name }}</span>
             <p>
-              同步只更新仓库名称、描述、主要语言和最近推送时间，不覆盖这里的展示文案。
+              每日同步更新原始仓库信息，保留自定义的卡片内容、作品介绍及精选设置。
             </p>
           </div>
           <RouterLink v-else to="/admin/github" class="text-link"

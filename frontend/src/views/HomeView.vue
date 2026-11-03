@@ -16,7 +16,7 @@ async function load() {
     const [p, all, w] = await Promise.all([
       api<Page<Content>>("/contents?kind=project&featured=1&limit=4"),
       api<Page<Content>>("/contents?kind=project&limit=4"),
-      api<Page<Content>>("/contents?kind=writing&limit=5"),
+      api<Page<Content>>("/contents?kind=writing&limit=5&preview=1"),
     ]);
     // 首页展示四个作品，优先精选，再以其他已发布作品补齐。
     projects.value = [
@@ -43,7 +43,7 @@ onMounted(load);
     <div class="section-heading">
       <div>
         <p class="eyebrow">01 / THINGS I BUILD</p>
-        <h2 id="featured-title">精选作品<span class="heading-dot">.</span></h2>
+        <h2 id="featured-title">我的一些项目<span class="heading-dot">.</span></h2>
       </div>
       <RouterLink to="/projects" class="text-link"
         >全部作品<Icon name="right" :size="17"
@@ -70,8 +70,8 @@ onMounted(load);
     <div class="section-heading">
       <div>
         <p class="eyebrow">02 / NOTES ALONG THE WAY</p>
-        <h2 id="writing-title">最近写下的<span class="heading-dot">.</span></h2>
-        <p class="section-description">技术笔记，也有生活里的小事。</p>
+        <h2 id="writing-title">最近的...<span class="heading-dot">.</span></h2>
+        <p class="section-description">内容分享和随笔，偶尔会更新的！</p>
       </div>
       <RouterLink to="/articles" class="text-link"
         >全部记录<Icon name="right" :size="17"
@@ -79,12 +79,17 @@ onMounted(load);
     </div>
     <div v-if="loading" class="loading-panel" role="status">正在整理文字…</div>
     <div v-else-if="writings.length" class="writing-list">
-      <ContentCard v-for="c in writings" :key="c.id" :content="c" />
+      <ContentCard
+        v-for="c in writings"
+        :key="c.id"
+        :content="c"
+        home-preview
+      />
     </div>
     <div v-else class="empty-panel writing-empty">
       <span class="empty-doodle"><Icon name="edit" :size="31" /></span>
-      <h3>下一篇，正在路上。</h3>
-      <p>一些技术探索，一些日常片刻。<br />写下来的时候，就留在这里。</p>
+      <h3>这里似乎无人来过~</h3>
+      <p>一些技术分享，一些日常片刻。<br />会写在这里。</p>
     </div>
   </section>
   <section class="about-section">

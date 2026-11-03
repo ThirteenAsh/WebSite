@@ -7,8 +7,9 @@ const route = useRoute(),
 document.documentElement.dataset.theme = "light";
 const nav = [
   { path: "/admin", label: "工作台", icon: "grid" },
-  { path: "/admin/contents", label: "内容管理", icon: "book" },
-  { path: "/admin/github", label: "GitHub 项目", icon: "code" },
+  { path: "/admin/projects", label: "作品管理", icon: "code" },
+  { path: "/admin/contents", label: "文章与日常", icon: "book" },
+  { path: "/admin/github", label: "GitHub 导入与同步", icon: "github" },
   { path: "/admin/media", label: "图片库", icon: "image" },
   { path: "/admin/settings", label: "站点设置", icon: "settings" },
 ];
@@ -60,8 +61,16 @@ async function logout() {
     <div class="admin-workspace">
       <header class="admin-topbar">
         <span>个人空间 <span class="muted">/</span> {{ route.meta.title }}</span
-        ><RouterLink to="/admin/contents/new" class="btn primary small"
-          ><Icon name="plus" :size="16" />写点什么</RouterLink
+        ><RouterLink
+          :to="
+            route.meta.section === 'projects'
+              ? '/admin/projects/new'
+              : '/admin/contents/new'
+          "
+          class="btn primary small"
+          ><Icon name="plus" :size="16" />{{
+            route.meta.section === "projects" ? "新建作品" : "写点什么"
+          }}</RouterLink
         >
       </header>
       <main class="admin-main">

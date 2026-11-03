@@ -56,9 +56,23 @@ func Open(cfg config.Database, create bool) (*sql.DB, error) {
 }
 
 func Migrate(db *sql.DB) error {
+	if err := executeSchema(db, migrations.InitialSchema); err != nil {
+		return err
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='contents' AND column_name='repo_overrides'`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		return executeSchema(db, migrations.RepoOverridesSchema)
+	}
+	return nil
+}
+
+func executeSchema(db *sql.DB, schema string) error {
 	// 初始脚本不含存储过程或字符串分号，逐条执行不启用 multiStatements。
 	var lines []string
-	for _, line := range strings.Split(migrations.InitialSchema, "\n") {
+	for _, line := range strings.Split(schema, "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), "--") {
 			lines = append(lines, line)
 		}

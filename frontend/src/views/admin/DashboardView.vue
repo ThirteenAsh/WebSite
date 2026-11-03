@@ -4,6 +4,7 @@ import { api, session, errorMessage } from "../../lib/api";
 import {
   formatDate,
   kindName,
+  adminContentPath,
   type Dashboard,
   type Content,
   type Page,
@@ -11,7 +12,8 @@ import {
 } from "../../lib/types";
 import Icon from "../../components/Icon.vue";
 const data = ref<Dashboard>(),
-  recent = ref<Content[]>([]),
+  recentProjects = ref<Content[]>([]),
+  recentWritings = ref<Content[]>([]),
   error = ref(""),
   loading = ref(true);
 const sync = computed<SyncResult | null>(() => {
@@ -51,12 +53,14 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const [d, r] = await Promise.all([
+    const [d, p, w] = await Promise.all([
       api<Dashboard>("/admin/dashboard"),
-      api<Page<Content>>("/admin/contents?limit=6"),
+      api<Page<Content>>("/admin/contents?kind=project&limit=4"),
+      api<Page<Content>>("/admin/contents?kind=writing&limit=4"),
     ]);
     data.value = d;
-    recent.value = r.items;
+    recentProjects.value = p.items;
+    recentWritings.value = w.items;
   } catch (e) {
     error.value = errorMessage(e);
   } finally {
@@ -90,35 +94,52 @@ onMounted(load);
       </div>
     </section>
     <div class="dashboard-columns">
-      <section class="admin-panel">
-        <div class="panel-heading">
-          <h2>最近编辑</h2>
-          <RouterLink to="/admin/contents" class="text-link"
-            >管理全部 →</RouterLink
-          >
-        </div>
-        <div v-if="!recent.length" class="empty-panel">
-          从第一篇记录开始吧。
-        </div>
-        <RouterLink
-          v-for="c in recent"
-          :key="c.id"
-          :to="`/admin/contents/${c.id}`"
-          class="recent-row"
-          ><span class="recent-icon"
-            ><Icon :name="c.kind === 'project' ? 'code' : 'book'"
-          /></span>
-          <div>
-            <strong>{{ c.title || "无标题动态" }}</strong
-            ><small
-              >{{ kindName(c.kind) }} · {{ formatDate(c.updated_at) }}</small
+      <div class="dashboard-recent">
+        <section
+          v-for="group in [
+            { title: '作品', items: recentProjects, path: '/admin/projects' },
+            {
+              title: '文章与日常',
+              items: recentWritings,
+              path: '/admin/contents',
+            },
+          ]"
+          :key="group.path"
+          class="admin-panel"
+        >
+          <div class="panel-heading">
+            <h2>{{ group.title }}</h2>
+            <RouterLink :to="group.path" class="text-link"
+              >前往管理 →</RouterLink
             >
           </div>
-          <span class="status-badge" :class="c.status">{{
-            c.status === "published" ? "已发布" : "草稿"
-          }}</span></RouterLink
-        >
-      </section>
+          <div v-if="!group.items.length" class="empty-panel">
+            {{
+              group.title === "作品"
+                ? "添加或导入第一件作品吧。"
+                : "从第一篇记录开始吧。"
+            }}
+          </div>
+          <RouterLink
+            v-for="c in group.items"
+            :key="c.id"
+            :to="adminContentPath(c)"
+            class="recent-row"
+            ><span class="recent-icon"
+              ><Icon :name="c.kind === 'project' ? 'code' : 'book'"
+            /></span>
+            <div>
+              <strong>{{ c.title || "无标题动态" }}</strong
+              ><small
+                >{{ kindName(c.kind) }} · {{ formatDate(c.updated_at) }}</small
+              >
+            </div>
+            <span class="status-badge" :class="c.status">{{
+              c.status === "published" ? "已发布" : "草稿"
+            }}</span></RouterLink
+          >
+        </section>
+      </div>
       <section class="admin-panel sync-panel">
         <span class="large-icon"><Icon name="github" :size="29" /></span>
         <h2>作品，持续生长。</h2>

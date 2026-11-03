@@ -1,3 +1,10 @@
+export interface RepoOverrides {
+  name?: string | null;
+  description?: string | null;
+  language?: string | null;
+  url?: string | null;
+  updated_at?: string | null;
+}
 export interface Content {
   id: number;
   kind: "project" | "article" | "moment";
@@ -5,6 +12,7 @@ export interface Content {
   title: string;
   summary: string;
   body: string;
+  body_preview?: string;
   cover_url: string;
   images: string[];
   tech_stack: string[];
@@ -18,6 +26,7 @@ export interface Content {
   repo_language: string;
   repo_url: string;
   repo_updated_at: string | null;
+  repo_overrides: RepoOverrides;
   demo_url: string;
   docs_url: string;
   release_url: string;
@@ -85,6 +94,18 @@ export interface Dashboard {
 }
 export const contentPath = (c: Pick<Content, "kind" | "id">) =>
   `/${c.kind === "project" ? "projects" : "articles"}/${c.id}`;
+export const adminContentPath = (c: Pick<Content, "kind" | "id">) =>
+  `/admin/${c.kind === "project" ? "projects" : "contents"}/${c.id}`;
+export function repoDisplay(c: Content) {
+  const v = c.repo_overrides || {};
+  return {
+    name: v.name ?? c.repo_name,
+    description: v.description ?? c.repo_description,
+    language: v.language ?? c.repo_language,
+    url: v.url ?? c.repo_url,
+    updated_at: v.updated_at ?? c.repo_updated_at,
+  };
+}
 export const kindName = (kind: string) =>
   ({ project: "项目", article: "文章", moment: "日常" })[kind] || kind;
 export function formatDate(value?: string | null) {
@@ -120,6 +141,7 @@ export function blankContent(kind: Content["kind"] = "article"): Content {
     repo_language: "",
     repo_url: "",
     repo_updated_at: null,
+    repo_overrides: {},
     demo_url: "",
     docs_url: "",
     release_url: "",

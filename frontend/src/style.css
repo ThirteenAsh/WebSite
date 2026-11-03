@@ -758,6 +758,14 @@ hr {
   margin-top: 10px;
   overflow-wrap: anywhere;
 }
+.writing-body-preview {
+  line-height: 1.9;
+  max-height: 5.7em;
+  overflow: hidden;
+  /* 固定在第三行淡出，短文字不会被整段变淡；遮罩同时适配深浅主题。 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 3.8em, transparent 5.7em);
+  mask-image: linear-gradient(to bottom, #000 3.8em, transparent 5.7em);
+}
 .writing-cover {
   display: block;
   margin-top: 17px;
@@ -885,13 +893,33 @@ hr {
 .listing-header {
   padding: 52px 0 32px;
 }
+.listing-header--archive {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  column-gap: clamp(32px, 6vw, 90px);
+  row-gap: 24px;
+  align-items: center;
+}
+.listing-intro {
+  min-width: 0;
+}
+.listing-header--archive .archive-calendar {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  justify-self: end;
+}
+.listing-header--archive .search-form {
+  grid-column: 1;
+  margin-top: 0;
+  align-self: start;
+}
 .listing-header h1 {
   font-size: 36px;
   letter-spacing: -1px;
   font-weight: 850;
   margin: 13px 0 12px;
 }
-.listing-header > p:not(.eyebrow) {
+.listing-description {
   color: var(--muted);
   font-size: 14px;
 }
@@ -2144,6 +2172,74 @@ label > .paper-select {
   display: grid;
   gap: 16px;
 }
+.manage-project-links {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.manage-project-links [aria-current="page"] {
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--ink);
+  font-weight: 700;
+}
+.dashboard-recent {
+  display: grid;
+  align-content: start;
+  gap: 23px;
+}
+.repo-card-editor {
+  margin-bottom: 22px;
+}
+.repo-card-editor > p {
+  line-height: 1.8;
+  margin: 12px 0 18px;
+}
+.repo-card-editor .repo-source {
+  margin-bottom: 18px;
+}
+.repo-card-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.repo-card-fields .wide-field {
+  grid-column: 1 / -1;
+}
+.repo-field-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.repo-field-heading .text-link {
+  font-size: 10px;
+}
+.repo-card-editor .repo-panel {
+  padding: 24px;
+  margin: 0;
+  gap: 20px;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.repo-card-editor .repo-panel h2 {
+  font-size: 20px;
+}
+.repo-card-editor .repo-panel p {
+  font-size: 13px;
+}
+.repo-card-editor .repo-panel .btn {
+  font-size: 11px;
+  padding: 10px 12px;
+}
+.repo-card-editor .project-links {
+  min-width: 135px;
+}
+.repo-panel > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .checkbox-label {
   display: flex;
   align-items: center;
@@ -2430,10 +2526,20 @@ label > .paper-select {
   .listing-header {
     padding-top: 30px;
   }
+  .listing-header--archive {
+    grid-template-columns: minmax(0, 1fr) 160px;
+    column-gap: 24px;
+  }
+  .listing-header--archive .archive-calendar {
+    grid-row: 1;
+  }
+  .listing-header--archive .search-form {
+    grid-column: 1 / -1;
+  }
   .listing-header h1 {
     font-size: 29px;
   }
-  .listing-header > p:not(.eyebrow) {
+  .listing-description {
     font-size: 13px;
   }
   .search-form {
@@ -2501,6 +2607,19 @@ label > .paper-select {
   }
 }
 @media (max-width: 480px) {
+  .listing-header--archive {
+    grid-template-columns: minmax(0, 1fr) 134px;
+    column-gap: 16px;
+  }
+  .listing-header--archive .eyebrow {
+    font-size: 9px;
+    letter-spacing: 0.7px;
+  }
+  .listing-header--archive h1 {
+    font-size: 27px;
+    line-height: 1.3;
+    letter-spacing: -0.7px;
+  }
   .brand {
     font-size: 20px;
     gap: 9px;

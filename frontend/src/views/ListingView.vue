@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, errorMessage } from "../lib/api";
+import { api, site, errorMessage } from "../lib/api";
 import type { Content, Page } from "../lib/types";
 import Icon from "../components/Icon.vue";
 import ContentCard from "../components/ContentCard.vue";
 import Pagination from "../components/Pagination.vue";
+import ArchiveCalendar from "../components/ArchiveCalendar.vue";
 const props = defineProps<{ mode: "projects" | "articles" | "search" }>();
 const route = useRoute(),
   router = useRouter(),
@@ -19,11 +20,19 @@ const q = computed(() =>
 const title = computed(
   () =>
     ({
-      projects: "把想法，做出来。",
-      articles: "把过程，写下来。",
-      search: "找一找，留过的痕迹。",
+      projects: "我的开源项目，欢迎来看",
+      articles: "这里有一些碎碎念",
+      search: "想找些什么呢？",
     })[props.mode],
 );
+const archiveCount = computed(() => {
+  if (props.mode === "search") return null;
+  if (!q.value && !loading.value && !error.value) return result.value.total;
+  if (!site.settings || site.error) return null;
+  return props.mode === "projects"
+    ? site.counts.projects
+    : site.counts.writings;
+});
 let request = 0;
 async function load() {
   const id = ++request;
@@ -65,26 +74,36 @@ function page(n: number) {
 }
 </script>
 <template>
-  <section class="listing-header">
-    <p class="eyebrow">
-      {{
-        mode === "projects"
-          ? "THE PROJECT ARCHIVE"
-          : mode === "articles"
-            ? "NOTES & EVERYDAY LIFE"
-            : "SEARCH THE SPACE"
-      }}
-    </p>
-    <h1>{{ title }}</h1>
-    <p>
-      {{
-        mode === "projects"
-          ? "从一个念头，到一次尝试，再到一个可以分享的作品。"
-          : mode === "articles"
-            ? "代码之外，也有值得记住的日常。所有文字都放在这里。"
-            : "在作品、技术笔记和日常记录中搜索。"
-      }}
-    </p>
+  <section
+    class="listing-header"
+    :class="{ 'listing-header--archive': mode !== 'search' }"
+  >
+    <div class="listing-intro">
+      <p class="eyebrow">
+        {{
+          mode === "projects"
+            ? "THE PROJECT ARCHIVE"
+            : mode === "articles"
+              ? "NOTES & EVERYDAY LIFE"
+              : "SEARCH THE SPACE"
+        }}
+      </p>
+      <h1>{{ title }}</h1>
+      <p class="listing-description">
+        {{
+          mode === "projects"
+            ? "从一个念头，到一次尝试，再到一个可以分享的作品。"
+            : mode === "articles"
+              ? "仅供参考"
+              : "在作品、技术笔记和日常记录中搜索。"
+        }}
+      </p>
+    </div>
+    <ArchiveCalendar
+      v-if="mode !== 'search'"
+      :kind="mode"
+      :count="archiveCount"
+    />
     <form class="search-form" @submit.prevent="search">
       <Icon name="search" /><input
         v-model="input"
