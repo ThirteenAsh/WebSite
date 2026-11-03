@@ -264,8 +264,13 @@ async function deleteContent(
 test("公开页面、深浅色和移动端布局", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  const featured = await (
+    await page.request.get("/api/contents?kind=project&featured=1&limit=4")
+  ).json();
   await page.goto("/");
-  await expect(page.locator(".project-card")).toHaveCount(4);
+  await expect(page.locator(".project-card")).toHaveCount(
+    featured.items.length,
+  );
   await expect(
     page.locator(".project-card .project-date").first(),
   ).toBeVisible();
@@ -283,7 +288,9 @@ test("公开页面、深浅色和移动端布局", async ({ page }) => {
   await page.getByRole("button", { name: "切换为浅色模式" }).click();
   await page.screenshot({ path: "../.local/home-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.locator(".project-card")).toHaveCount(4);
+  await expect(page.locator(".project-card")).toHaveCount(
+    featured.items.length,
+  );
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

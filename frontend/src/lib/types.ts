@@ -76,6 +76,7 @@ export interface Repo {
   pushed_at: string;
   archived: boolean;
   selected: boolean;
+  content_id: number;
 }
 export interface SyncResult {
   at: string;

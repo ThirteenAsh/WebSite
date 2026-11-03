@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -27,27 +28,40 @@ func (a *Server) githubRepos(w http.ResponseWriter, r *http.Request) {
 		fail(w, 502, e.Error())
 		return
 	}
-	rows, e := a.db.QueryContext(r.Context(), "SELECT repo_full_name FROM contents WHERE kind='project' AND repo_full_name<>''")
+	rows, e := a.db.QueryContext(r.Context(), "SELECT id,repo_id,repo_full_name FROM contents WHERE kind='project' AND (repo_id IS NOT NULL OR repo_full_name<>'')")
 	if e != nil {
 		serverError(w, e)
 		return
 	}
 	defer rows.Close()
-	selected := map[string]bool{}
+	byID := map[int64]int64{}
+	byName := map[string]int64{}
 	for rows.Next() {
+		var id int64
+		var repoID sql.NullInt64
 		var name string
-		if e = rows.Scan(&name); e != nil {
+		if e = rows.Scan(&id, &repoID, &name); e != nil {
 			serverError(w, e)
 			return
 		}
-		selected[strings.ToLower(name)] = true
+		if repoID.Valid {
+			byID[repoID.Int64] = id
+		}
+		if name != "" {
+			byName[strings.ToLower(name)] = id
+		}
 	}
 	if e = rows.Err(); e != nil {
 		serverError(w, e)
 		return
 	}
 	for i := range repos {
-		repos[i].Selected = selected[strings.ToLower(repos[i].FullName)]
+		id := byID[repos[i].ID]
+		if id == 0 {
+			id = byName[strings.ToLower(repos[i].FullName)]
+		}
+		repos[i].ContentID = id
+		repos[i].Selected = id != 0
 	}
 	jsonResponse(w, 200, map[string]any{"items": repos})
 }

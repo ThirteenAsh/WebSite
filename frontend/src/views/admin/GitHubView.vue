@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { api, notify, errorMessage } from "../../lib/api";
+import { showError } from "../../lib/dialogs";
 import { formatDate, type Repo, type SyncResult } from "../../lib/types";
 import Icon from "../../components/Icon.vue";
 const repos = ref<Repo[]>([]),
@@ -26,6 +28,7 @@ async function load() {
     chosen.value.clear();
   } catch (e) {
     error.value = errorMessage(e);
+    void showError(error.value, "仓库读取失败");
   } finally {
     loading.value = false;
   }
@@ -43,7 +46,7 @@ async function add() {
     );
     await load();
   } catch (e) {
-    notify(errorMessage(e), "error");
+    void showError(errorMessage(e));
   } finally {
     importing.value = false;
   }
@@ -54,12 +57,16 @@ async function sync() {
     syncResult.value = await api<SyncResult>("/admin/github/sync", {
       method: "POST",
     });
-    notify(
-      `同步完成：更新 ${syncResult.value.updated} 个，失败 ${syncResult.value.errors.length} 个`,
-      syncResult.value.errors.length ? "error" : "success",
-    );
+    if (syncResult.value.errors.length) {
+      void showError(
+        `已更新 ${syncResult.value.updated} 个项目，${syncResult.value.errors.length} 个同步失败。\n\n${syncResult.value.errors.join("\n")}`,
+        "部分项目未能同步",
+      );
+    } else {
+      notify(`同步完成：更新 ${syncResult.value.updated} 个项目`);
+    }
   } catch (e) {
-    notify(errorMessage(e), "error");
+    void showError(errorMessage(e));
   } finally {
     syncing.value = false;
   }
@@ -99,7 +106,7 @@ onMounted(load);
       <li v-for="message in syncResult.errors" :key="message">{{ message }}</li>
     </ul>
   </div>
-  <section class="admin-panel">
+  <section class="admin-panel github-panel">
     <div class="panel-heading">
       <h2>
         公开仓库 <span class="muted small-text">{{ repos.length }} 个</span>
@@ -117,7 +124,7 @@ onMounted(load);
           :disabled="loading || importing"
           @click="load"
         >
-          <Icon name="refresh" :size="16" />刷新
+          <Icon name="refresh" :class="{ spinning: loading }" :size="16" />刷新
         </button>
       </div>
     </div>
@@ -129,15 +136,19 @@ onMounted(load);
       没有找到公开仓库，请检查站点设置里的 GitHub 用户名。
     </div>
     <div v-else class="repo-grid">
-      <label
+      <component
+        :is="repo.selected ? RouterLink : 'label'"
         v-for="repo in filtered"
         :key="repo.id"
+        :to="repo.selected ? `/admin/projects/${repo.content_id}` : undefined"
+        :aria-label="repo.selected ? `编辑作品：${repo.name}` : undefined"
+        :title="repo.selected ? `编辑作品：${repo.name}` : undefined"
         class="repo-choice"
         :class="{ checked: chosen.has(repo.id), imported: repo.selected }"
         ><div class="repo-choice-top">
           <Icon name="book" :size="18" /><strong>{{ repo.name }}</strong
           ><span v-if="repo.selected" class="status-badge published"
-            >已导入</span
+            >已导入 · 编辑 →</span
           ><input
             v-else
             type="checkbox"
@@ -151,7 +162,7 @@ onMounted(load);
           <span>{{ repo.language || "未标注语言" }}</span
           ><span>{{ formatDate(repo.pushed_at) }}</span
           ><span v-if="repo.archived">已归档</span>
-        </div></label
+        </div></component
       >
     </div>
     <div class="github-import-bar">

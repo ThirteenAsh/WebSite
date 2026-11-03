@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api, upload, notify, errorMessage } from "../../lib/api";
+import { confirmAction, showError } from "../../lib/dialogs";
 import type { Upload, Page } from "../../lib/types";
 import Icon from "../../components/Icon.vue";
 import Pagination from "../../components/Pagination.vue";
@@ -15,6 +16,7 @@ async function load(page = 1) {
     result.value = await api<Page<Upload>>(`/admin/uploads?page=${page}`);
   } catch (e) {
     error.value = errorMessage(e);
+    void showError(error.value, "图片库读取失败");
   } finally {
     loading.value = false;
   }
@@ -31,7 +33,10 @@ async function add(event: Event) {
     }
     if (count) notify(`已上传 ${count} 张图片`);
   } catch (e) {
-    notify(`${count ? `已上传 ${count} 张。` : ""}${errorMessage(e)}`, "error");
+    void showError(
+      `${count ? `已上传 ${count} 张。` : ""}${errorMessage(e)}`,
+      "图片上传未完成",
+    );
   } finally {
     busy.value = false;
     input.value = "";
@@ -39,7 +44,17 @@ async function add(event: Event) {
   }
 }
 async function remove(image: Upload) {
-  if (!confirm(`确定删除图片“${image.original_name}”吗？`)) return;
+  if (
+    !(await confirmAction(
+      `确定删除图片“${image.original_name}”吗？删除后无法恢复。`,
+      {
+        title: "删除图片",
+        tone: "danger",
+        confirmText: "确认删除",
+      },
+    ))
+  )
+    return;
   try {
     await api(`/admin/uploads/${image.id}`, { method: "DELETE" });
     notify("图片已删除");
@@ -49,7 +64,7 @@ async function remove(image: Upload) {
         : result.value.page,
     );
   } catch (e) {
-    notify(errorMessage(e), "error");
+    void showError(errorMessage(e));
   }
 }
 async function copy(url: string) {
@@ -57,7 +72,7 @@ async function copy(url: string) {
     await navigator.clipboard.writeText(url);
     notify("图片地址已复制");
   } catch {
-    notify("复制失败，请在图片上右键复制地址", "error");
+    void showError("复制失败，请在图片上右键复制地址");
   }
 }
 onMounted(() => load());

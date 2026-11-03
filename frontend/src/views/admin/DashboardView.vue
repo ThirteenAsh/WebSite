@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { api, session, errorMessage } from "../../lib/api";
+import { showError } from "../../lib/dialogs";
 import {
   formatDate,
   kindName,
@@ -63,6 +64,7 @@ async function load() {
     recentWritings.value = w.items;
   } catch (e) {
     error.value = errorMessage(e);
+    void showError(error.value, "工作台读取失败");
   } finally {
     loading.value = false;
   }
@@ -73,7 +75,7 @@ onMounted(load);
   <div class="admin-page-heading">
     <div>
       <p class="eyebrow">YOUR CREATIVE WORKSPACE</p>
-      <h1>你好，{{ session.username }}。<span class="wave">✳</span></h1>
+      <h1>你好，{{ session.username }}。</h1>
       <p>每个想法，都值得留下一页。</p>
     </div>
     <RouterLink to="/admin/contents/new" class="btn primary"

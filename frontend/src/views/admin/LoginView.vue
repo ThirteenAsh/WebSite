@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { session, errorMessage } from "../../lib/api";
+import { showError } from "../../lib/dialogs";
 import Icon from "../../components/Icon.vue";
 const route = useRoute(),
   router = useRouter(),
@@ -33,6 +34,7 @@ async function login() {
     await router.replace(destination());
   } catch (e) {
     error.value = errorMessage(e);
+    void showError(error.value, "登录未成功");
   } finally {
     busy.value = false;
   }

@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { api, site, session, notify, errorMessage } from "../../lib/api";
+import { showError } from "../../lib/dialogs";
 import type { SiteSettings } from "../../lib/types";
 import Icon from "../../components/Icon.vue";
 import ImageField from "../../components/ImageField.vue";
@@ -21,6 +22,7 @@ async function load() {
     skills.value = settings.value.skills.join("\n");
   } catch (e) {
     error.value = errorMessage(e);
+    void showError(error.value, "设置读取失败");
   }
 }
 async function save() {
@@ -38,14 +40,14 @@ async function save() {
     await site.load();
     notify("站点设置已保存");
   } catch (e) {
-    notify(errorMessage(e), "error");
+    void showError(errorMessage(e), "设置未保存");
   } finally {
     busy.value = false;
   }
 }
 async function password() {
   if (newPassword.value !== confirmPassword.value) {
-    notify("两次输入的新密码不一致", "error");
+    void showError("两次输入的新密码不一致", "请检查新密码");
     return;
   }
   changing.value = true;
@@ -64,7 +66,7 @@ async function password() {
     notify("密码已修改，请用新密码重新登录");
     await router.replace("/admin/login");
   } catch (e) {
-    notify(errorMessage(e), "error");
+    void showError(errorMessage(e), "密码未修改");
   } finally {
     changing.value = false;
   }

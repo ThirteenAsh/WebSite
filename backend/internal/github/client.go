@@ -33,6 +33,7 @@ type Repository struct {
 	Private     bool       `json:"private"`
 	Archived    bool       `json:"archived"`
 	Selected    bool       `json:"selected"`
+	ContentID   int64      `json:"content_id"`
 }
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

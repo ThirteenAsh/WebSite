@@ -13,13 +13,37 @@ export const notifications = reactive<
   { id: number; text: string; type: string }[]
 >([]);
 let noticeID = 0;
+const noticeTimers = new Map<
+  number,
+  { timer?: number; remaining: number; started: number }
+>();
 export function notify(text: string, type = "success") {
   const id = ++noticeID;
   notifications.push({ id, text, type });
-  window.setTimeout(() => {
-    const i = notifications.findIndex((n) => n.id === id);
-    if (i >= 0) notifications.splice(i, 1);
-  }, 5500);
+  noticeTimers.set(id, { remaining: 5500, started: Date.now() });
+  resumeNotification(id);
+}
+export function dismissNotification(id: number) {
+  window.clearTimeout(noticeTimers.get(id)?.timer);
+  noticeTimers.delete(id);
+  const i = notifications.findIndex((notice) => notice.id === id);
+  if (i >= 0) notifications.splice(i, 1);
+}
+export function pauseNotification(id: number) {
+  const state = noticeTimers.get(id);
+  if (!state || state.timer === undefined) return;
+  window.clearTimeout(state.timer);
+  state.timer = undefined;
+  state.remaining = Math.max(0, state.remaining - (Date.now() - state.started));
+}
+export function resumeNotification(id: number) {
+  const state = noticeTimers.get(id);
+  if (!state || state.timer !== undefined) return;
+  state.started = Date.now();
+  state.timer = window.setTimeout(
+    () => dismissNotification(id),
+    state.remaining,
+  );
 }
 export const errorMessage = (e: unknown) =>
   e instanceof Error ? e.message : "操作失败，请稍后重试";

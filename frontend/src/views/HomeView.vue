@@ -13,15 +13,11 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const [p, all, w] = await Promise.all([
+    const [p, w] = await Promise.all([
       api<Page<Content>>("/contents?kind=project&featured=1&limit=4"),
-      api<Page<Content>>("/contents?kind=project&limit=4"),
       api<Page<Content>>("/contents?kind=writing&limit=5&preview=1"),
     ]);
-    // 首页展示四个作品，优先精选，再以其他已发布作品补齐。
-    projects.value = [
-      ...new Map([...p.items, ...all.items].map((c) => [c.id, c])).values(),
-    ].slice(0, 4);
+    projects.value = p.items;
     writings.value = w.items;
   } catch (e) {
     error.value = errorMessage(e);
@@ -43,7 +39,9 @@ onMounted(load);
     <div class="section-heading">
       <div>
         <p class="eyebrow">01 / THINGS I BUILD</p>
-        <h2 id="featured-title">我的一些项目<span class="heading-dot">.</span></h2>
+        <h2 id="featured-title">
+          我的一些项目<span class="heading-dot">.</span>
+        </h2>
       </div>
       <RouterLink to="/projects" class="text-link"
         >全部作品<Icon name="right" :size="17"

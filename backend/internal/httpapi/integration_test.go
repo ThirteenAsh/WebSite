@@ -352,7 +352,19 @@ func TestIntegration(t *testing.T) {
 		request(visitor, "GET", uploaded.URL, nil, 404, "")
 	})
 	t.Run("GitHub选择导入同步保留自定义字段", func(t *testing.T) {
-		request(admin, "GET", "/api/admin/github/repos", nil, 200, csrf)
+		assertRepoContent := func(wantID int64) {
+			t.Helper()
+			var list struct {
+				Items []github.Repository `json:"items"`
+			}
+			if e := json.Unmarshal(request(admin, "GET", "/api/admin/github/repos", nil, 200, csrf), &list); e != nil {
+				t.Fatal(e)
+			}
+			if len(list.Items) != 1 || list.Items[0].ContentID != wantID || list.Items[0].Selected != (wantID != 0) {
+				t.Fatalf("仓库关联的作品编号异常，期望 %d: %+v", wantID, list.Items)
+			}
+		}
+		assertRepoContent(0)
 		body := map[string]any{"ids": []int64{999001}}
 		request(admin, "POST", "/api/admin/github/import", body, 200, csrf)
 		raw := request(admin, "POST", "/api/admin/github/import", body, 200, csrf)
@@ -364,6 +376,19 @@ func TestIntegration(t *testing.T) {
 		_ = db.QueryRow("SELECT id,status FROM contents WHERE repo_id=999001").Scan(&id, &status)
 		if status != "draft" {
 			t.Fatal("导入自动发布")
+		}
+		assertRepoContent(id)
+		// 仓库改名后仍按 GitHub 编号关联；没有编号的旧作品按名称匹配。
+		if _, e := db.Exec("UPDATE contents SET repo_full_name='fixture/previous-name' WHERE id=?", id); e != nil {
+			t.Fatal(e)
+		}
+		assertRepoContent(id)
+		if _, e := db.Exec("UPDATE contents SET repo_id=NULL,repo_full_name='FIXTURE/FIXTURE-REPO' WHERE id=?", id); e != nil {
+			t.Fatal(e)
+		}
+		assertRepoContent(id)
+		if _, e := db.Exec("UPDATE contents SET repo_id=999001,repo_full_name='fixture/fixture-repo' WHERE id=?", id); e != nil {
+			t.Fatal(e)
 		}
 		if _, e := db.Exec("UPDATE contents SET title='手写项目名',summary='手写摘要',body='手写正文',sort_order=7,featured=1 WHERE id=?", id); e != nil {
 			t.Fatal(e)

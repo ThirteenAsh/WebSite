@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
-import { api, session, notify, errorMessage } from "../lib/api";
+import { api, session, errorMessage } from "../lib/api";
+import { showError } from "../lib/dialogs";
 import Icon from "../components/Icon.vue";
 const route = useRoute(),
   router = useRouter();
@@ -19,7 +20,7 @@ async function logout() {
     session.clear();
     router.push("/admin/login");
   } catch (e) {
-    notify(errorMessage(e), "error");
+    void showError(errorMessage(e), "退出登录未成功");
   }
 }
 </script>
@@ -60,18 +61,10 @@ async function logout() {
     </aside>
     <div class="admin-workspace">
       <header class="admin-topbar">
-        <span>个人空间 <span class="muted">/</span> {{ route.meta.title }}</span
-        ><RouterLink
-          :to="
-            route.meta.section === 'projects'
-              ? '/admin/projects/new'
-              : '/admin/contents/new'
-          "
-          class="btn primary small"
-          ><Icon name="plus" :size="16" />{{
-            route.meta.section === "projects" ? "新建作品" : "写点什么"
-          }}</RouterLink
-        >
+        <nav aria-label="当前位置" class="admin-breadcrumb">
+          <span>个人空间</span><span class="muted" aria-hidden="true">/</span>
+          <span aria-current="page">{{ route.meta.title }}</span>
+        </nav>
       </header>
       <main class="admin-main">
         <RouterView v-slot="{ Component, route: pageRoute }"

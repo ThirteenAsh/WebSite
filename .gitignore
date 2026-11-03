@@ -10,3 +10,4 @@ frontend/test-results/
 *.log
 scripts
 index-example.html
+start.bat

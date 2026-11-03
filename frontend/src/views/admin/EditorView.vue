@@ -14,6 +14,7 @@ import {
   useRouter,
 } from "vue-router";
 import { api, notify, errorMessage } from "../../lib/api";
+import { confirmAction, showError } from "../../lib/dialogs";
 import {
   blankContent,
   contentPath,
@@ -76,6 +77,7 @@ async function load() {
     baseline.value = serialized.value;
   } catch (e) {
     error.value = errorMessage(e);
+    void showError(error.value, "编辑器打开失败");
   } finally {
     loading.value = false;
   }
@@ -92,11 +94,11 @@ async function save(status: Content["status"]) {
     .filter(Boolean);
   c.status = status;
   if (c.kind !== "moment" && !c.title.trim()) {
-    notify("请先填写标题", "error");
+    void showError("请先填写标题", "还差一个标题");
     return;
   }
   if (c.kind === "moment" && !c.body.trim() && !c.images.length) {
-    notify("短动态至少需要文字或配图", "error");
+    void showError("短动态至少需要文字或配图", "补充一点内容吧");
     return;
   }
   if (!c.summary.trim() && c.kind !== "moment")
@@ -119,7 +121,7 @@ async function save(status: Content["status"]) {
     );
     if (isNew) await router.replace(adminContentPath(content.value));
   } catch (e) {
-    notify(errorMessage(e), "error");
+    void showError(errorMessage(e), "内容未保存");
   } finally {
     busy.value = false;
   }
@@ -146,7 +148,7 @@ function pick(target: "body" | "gallery") {
 function selectedImage(url: string) {
   if (imageTarget.value === "body") insert(`\n![图片](${url})\n`);
   else if (content.value.images.length < 9) content.value.images.push(url);
-  else notify("最多添加 9 张配图", "error");
+  else void showError("最多添加 9 张配图", "配图数量已达上限");
 }
 function beforeUnload(e: BeforeUnloadEvent) {
   if (dirty.value) {
@@ -157,6 +159,7 @@ function beforeUnload(e: BeforeUnloadEvent) {
 function keyboard(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
     e.preventDefault();
+    if (document.querySelector("dialog[open]")) return;
     if (!loading.value && !error.value) save(content.value.status);
   }
 }
@@ -168,9 +171,18 @@ onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", beforeUnload);
   window.removeEventListener("keydown", keyboard);
 });
-onBeforeRouteLeave(
-  () => !dirty.value || confirm("还有未保存的修改，确定离开吗？"),
-);
+function confirmLeave() {
+  return (
+    !dirty.value ||
+    confirmAction("还有未保存的修改，离开后这些修改将丢失。", {
+      title: "离开编辑器？",
+      tone: "warning",
+      confirmText: "放弃修改并离开",
+      cancelText: "继续编辑",
+    })
+  );
+}
+onBeforeRouteLeave(confirmLeave);
 onBeforeRouteUpdate((to, from) => {
   if (
     to.params.id === from.params.id &&
@@ -178,7 +190,7 @@ onBeforeRouteUpdate((to, from) => {
     to.meta.section === from.meta.section
   )
     return true;
-  return !dirty.value || confirm("还有未保存的修改，确定离开吗？");
+  return confirmLeave();
 });
 </script>
 <template>
@@ -200,8 +212,8 @@ onBeforeRouteUpdate((to, from) => {
                 ? "编辑作品"
                 : "添加一件新作品。"
               : content.id
-                ? "继续写下去。"
-                : "今天，写点什么？"
+                ? "朋友圈。"
+                : "今天，有什么新鲜事吗？"
           }}
         </h1>
         <span class="muted small-text"

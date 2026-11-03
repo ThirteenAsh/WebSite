@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
-import { notifications, ensureVisitor } from "./lib/api";
+import { ensureVisitor } from "./lib/api";
+import FeedbackDialog from "./components/FeedbackDialog.vue";
+import NotificationStack from "./components/NotificationStack.vue";
 onMounted(() => {
   ensureVisitor().catch(() => {});
 });
@@ -12,9 +14,6 @@ onMounted(() => {
         <component :is="Component" /></div
     ></Transition>
   </RouterView>
-  <div class="notifications" aria-live="polite">
-    <div v-for="n in notifications" :key="n.id" class="toast" :class="n.type">
-      {{ n.text }}
-    </div>
-  </div>
+  <NotificationStack />
+  <FeedbackDialog />
 </template>

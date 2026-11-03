@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref } from "vue";
 import { api, upload, notify, errorMessage } from "../lib/api";
+import { showError } from "../lib/dialogs";
 import type { Upload, Page } from "../lib/types";
 import Icon from "./Icon.vue";
 import Pagination from "./Pagination.vue";
@@ -17,6 +18,7 @@ async function load(page = 1) {
     result.value = await api<Page<Upload>>(`/admin/uploads?page=${page}`);
   } catch (e) {
     error.value = errorMessage(e);
+    void showError(error.value, "图片库读取失败");
   } finally {
     loading.value = false;
   }
@@ -40,7 +42,7 @@ async function add(event: Event) {
     choose(image.url);
     notify("图片已上传");
   } catch (e) {
-    notify(errorMessage(e), "error");
+    void showError(errorMessage(e), "图片上传未完成");
   } finally {
     busy.value = false;
     input.value = "";
