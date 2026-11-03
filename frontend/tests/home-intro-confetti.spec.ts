@@ -65,7 +65,7 @@ for (const viewport of [
   { name: "desktop", width: 1440, height: 960 },
   { name: "mobile", width: 390, height: 844 },
 ]) {
-  test(`彩带在头像完整出现后爆开，上滑收回、下滑重放且不覆盖作品：${viewport.name}`, async ({
+  test(`开场和彩带每次刷新只播放一次，首次之后恢复正常滚动：${viewport.name}`, async ({
     page,
   }) => {
     const errors: string[] = [];
@@ -120,18 +120,24 @@ for (const viewport of [
     ).toBeLessThan(2);
 
     await page.mouse.wheel(0, -viewport.height * 0.08);
-    await expect(layer).toHaveAttribute("data-phase", "rewind");
-    await page.mouse.wheel(0, -viewport.height * 0.18);
-    await expect(layer).toHaveAttribute("data-phase", "idle");
-    await expect(page.locator(".intro-copy")).toHaveCSS("opacity", "1");
-    expect((await pixels(page)).count).toBe(0);
-    await page.mouse.wheel(0, viewport.height * 0.12);
-    await expect(layer).toHaveAttribute("data-phase", "burst");
+    await expect(page.locator(".home-intro")).toHaveClass(/is-released/);
+    await expect(layer).toHaveAttribute("data-phase", "settled");
     await expect
-      .poll(async () => (await pixels(page)).count)
-      .toBeGreaterThan(0);
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeLessThan(2);
+    await expect(page.locator(".intro-copy")).toHaveCSS("opacity", "1");
+    await expect(page.locator(".terminal-scene")).toHaveCSS("opacity", "0");
+    const avatarTop = (await page.locator(".intro-avatar").boundingBox())!.y;
+    await page.mouse.wheel(0, viewport.height * 0.12);
+    await expect
+      .poll(
+        async () =>
+          avatarTop - (await page.locator(".intro-avatar").boundingBox())!.y,
+      )
+      .toBeGreaterThan(viewport.height * 0.1);
+    await expect(layer).toHaveAttribute("data-phase", "settled");
 
-    await scrollIntro(page, 1.85);
+    await page.locator("#featured-title").scrollIntoViewIfNeeded();
     await expect(page.locator("#featured-title")).toBeInViewport();
     expect(
       await page.evaluate(() => {
@@ -156,15 +162,22 @@ for (const viewport of [
     await page.locator(".brand").click();
     await expect(page.locator(".intro-confetti")).toHaveAttribute(
       "data-phase",
-      "idle",
+      "settled",
     );
+    await expect(page.locator(".intro-copy")).toHaveCSS("opacity", "1");
+    await expect(page.locator(".terminal-scene")).toHaveCSS("opacity", "0");
+    await expect(page.locator(".home-intro")).toHaveClass(/is-released/);
+    await page.reload();
+    await expect(layer).toHaveAttribute("data-phase", "idle");
+    await expect(page.locator(".terminal-scene")).toHaveCSS("opacity", "1");
+    expect((await pixels(page)).count).toBe(0);
+    await scrollIntro(page, 0.68);
+    await expect(layer).toHaveAttribute("data-phase", "burst");
     expect(errors).toEqual([]);
   });
 }
 
-test("减少动态效果时不生成彩带，开关设置会清理正在播放的动效", async ({
-  page,
-}) => {
+test("减少动态效果时直接展示介绍，切换设置不会补播动画", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await expect(page.locator(".intro-copy")).toHaveCSS("opacity", "1");
@@ -173,7 +186,7 @@ test("减少动态效果时不生成彩带，开关设置会清理正在播放�
   await scrollIntro(page, 0.9);
   await expect(page.locator(".intro-confetti")).toHaveAttribute(
     "data-phase",
-    "burst",
+    "settled",
   );
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(page.locator(".intro-confetti")).toHaveCount(0);

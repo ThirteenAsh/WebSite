@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { introPlayback } from "../lib/introPlayback";
 
 const props = defineProps<{
-  progress: number;
   ready: boolean;
   origin?: HTMLElement;
 }>();
 const layer = ref<HTMLElement>();
 const canvas = ref<HTMLCanvasElement>();
-const phase = ref<"idle" | "burst" | "settled" | "rewind">("idle");
+const phase = ref<"idle" | "burst" | "settled">("idle");
 
 type Point = { x: number; y: number };
 type Zone = { left: number; top: number; width: number; height: number };
@@ -27,24 +27,18 @@ type Particle = {
   glitter: boolean;
 };
 
-const rewindDistance = 0.15;
 let context: CanvasRenderingContext2D | null = null;
 let particles: Particle[] = [];
 let width = 0;
 let height = 0;
 let flightTime = 0;
 let duration = 0;
-let opacity = 1;
 let frame = 0;
 let lastTime = 0;
-let rewindStart = 0;
-let rewindTime = 0;
-let rewindOpacity = 1;
 let geometryObserver: ResizeObserver | undefined;
 let themeObserver: MutationObserver | undefined;
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
-const ease = (value: number) => value * value * (3 - 2 * value);
 const random = (seed: number) => {
   const value = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
   return value - Math.floor(value);
@@ -169,7 +163,7 @@ function draw() {
     context.translate(x, y);
     context.rotate(particle.rotation + particle.spin * t);
     context.scale(1.2, 1.2);
-    context.globalAlpha = opacity * Math.min(1, t * 25) * (1 - 0.28 * t);
+    context.globalAlpha = Math.min(1, t * 25) * (1 - 0.28 * t);
     context.fillStyle = particle.color;
     if (particle.glitter) {
       const size = particle.width;
@@ -203,54 +197,36 @@ function animate(now: number) {
   const delta = Math.min(50, now - lastTime);
   lastTime = now;
   flightTime = Math.min(duration, flightTime + delta);
-  opacity = Math.min(1, opacity + delta / 180);
   draw();
-  if (flightTime < duration || opacity < 1) {
+  if (flightTime < duration) {
     frame = requestAnimationFrame(animate);
   } else {
     phase.value = "settled";
   }
 }
 function play() {
-  if (!context || !props.origin || !width || !height) return;
-  if (phase.value === "idle") {
-    createParticles();
-    flightTime = 0;
-    opacity = 1;
+  if (
+    !context ||
+    !props.origin ||
+    !width ||
+    !height ||
+    !props.ready ||
+    phase.value !== "idle"
+  )
+    return;
+  createParticles();
+  if (!particles.length) return;
+  if (introPlayback.confettiPlayed) {
+    flightTime = duration;
+    phase.value = "settled";
+    draw();
+    return;
   }
+  introPlayback.confettiPlayed = true;
+  flightTime = 0;
   phase.value = "burst";
   lastTime = performance.now();
   if (!frame) frame = requestAnimationFrame(animate);
-}
-function reset() {
-  cancelAnimationFrame(frame);
-  frame = 0;
-  flightTime = 0;
-  phase.value = "idle";
-  draw();
-}
-function followScroll(value: number, previous: number) {
-  if (value < previous && phase.value !== "idle") {
-    cancelAnimationFrame(frame);
-    frame = 0;
-    if (phase.value !== "rewind") {
-      rewindStart = previous;
-      rewindTime = flightTime;
-      rewindOpacity = opacity;
-      phase.value = "rewind";
-    }
-    const retreat = ease(clamp((rewindStart - value) / rewindDistance));
-    flightTime = rewindTime * (1 - retreat);
-    opacity = rewindOpacity * (1 - retreat);
-    if (retreat >= 1) reset();
-    else draw();
-  } else if (
-    value > previous &&
-    props.ready &&
-    (phase.value === "idle" || phase.value === "rewind")
-  ) {
-    play();
-  }
 }
 function resize() {
   if (!layer.value || !canvas.value) return;
@@ -264,6 +240,7 @@ function resize() {
   context?.setTransform(density, 0, 0, density, 0, 0);
   if (phase.value !== "idle") createParticles();
   draw();
+  play();
 }
 function observeOrigin() {
   if (props.origin) {
@@ -275,7 +252,7 @@ function observeOrigin() {
   if (props.ready && phase.value === "idle") play();
 }
 
-watch(() => props.progress, followScroll, { flush: "post" });
+watch(() => props.ready, play, { flush: "post" });
 watch(() => props.origin, observeOrigin, { flush: "post" });
 onMounted(() => {
   geometryObserver = new ResizeObserver(resize);

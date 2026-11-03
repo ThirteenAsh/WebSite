@@ -390,6 +390,17 @@ hr {
   z-index: 40;
   background: var(--bg);
 }
+.site-header.home-header::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  background: var(--bg);
+  z-index: -1;
+  pointer-events: none;
+}
 .home-header + .public-main,
 #featured-title {
   scroll-margin-top: 104px;

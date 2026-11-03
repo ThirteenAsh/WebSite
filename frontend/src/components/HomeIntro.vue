@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { site } from "../lib/api";
+import { introPlayback } from "../lib/introPlayback";
 import Icon from "./Icon.vue";
 import IntroConfetti from "./IntroConfetti.vue";
 
@@ -10,7 +11,9 @@ const avatar = ref<HTMLElement>();
 const sceneProgress = ref(0);
 const revealShare = ref(1);
 const scrollProgress = computed(() => sceneProgress.value / revealShare.value);
-const progress = computed(() => Math.min(1, scrollProgress.value));
+const progress = computed(() =>
+  introPlayback.revealed ? 1 : Math.min(1, scrollProgress.value),
+);
 const elapsed = ref(0);
 const reducedMotion = ref(false);
 const name = computed(() => site.settings?.name || "ThirteenAsh");
@@ -79,11 +82,32 @@ let typingTimer: ReturnType<typeof setInterval> | undefined;
 let header: HTMLElement | null = null;
 let headerObserver: ResizeObserver | undefined;
 let motionQuery: MediaQueryList | undefined;
+let lastScrollY = window.scrollY;
+
+async function releaseDamping() {
+  if (!scene.value || introPlayback.released) return;
+  const stage = scene.value.querySelector<HTMLElement>(".intro-stage");
+  if (!stage) return;
+  const top = header?.getBoundingClientRect().height || 0;
+  const distance = Math.max(0, scene.value.offsetHeight - stage.offsetHeight);
+  const consumed = Math.min(
+    distance,
+    Math.max(0, top - scene.value.getBoundingClientRect().top),
+  );
+  const target = Math.max(0, window.scrollY - consumed);
+  introPlayback.released = true;
+  sceneProgress.value = 1;
+  await nextTick();
+  // 收起首次开场的滚动空间，同时补偿位置，保持可见内容不跳动。
+  if (scene.value) window.scrollTo({ top: target, behavior: "instant" });
+}
 
 function updateProgress() {
   frame = 0;
   if (!scene.value) return;
-  if (reducedMotion.value) {
+  const movingUp = window.scrollY < lastScrollY - 0.5;
+  lastScrollY = window.scrollY;
+  if (reducedMotion.value || introPlayback.released) {
     sceneProgress.value = 1;
     return;
   }
@@ -95,6 +119,10 @@ function updateProgress() {
     0,
     Math.min(1, (top - scene.value.getBoundingClientRect().top) / distance),
   );
+  if (avatarEnter.value === 1) introPlayback.revealed = true;
+  if (introPlayback.revealed && (movingUp || sceneProgress.value >= 1)) {
+    void releaseDamping();
+  }
 }
 function queueProgress() {
   if (!frame) frame = requestAnimationFrame(updateProgress);
@@ -115,7 +143,12 @@ function measureHeader() {
 }
 function syncMotion() {
   reducedMotion.value = motionQuery?.matches || false;
-  if (reducedMotion.value) elapsed.value = 4000;
+  if (reducedMotion.value) {
+    elapsed.value = 4000;
+    introPlayback.revealed = true;
+    introPlayback.confettiPlayed = true;
+    void releaseDamping();
+  }
   queueProgress();
 }
 
@@ -131,7 +164,7 @@ onMounted(() => {
   motionQuery.addEventListener("change", syncMotion);
   document.fonts.ready.then(measureHeader);
 
-  if (!reducedMotion.value) {
+  if (!reducedMotion.value && !introPlayback.revealed) {
     const started = performance.now();
     typingTimer = setInterval(() => {
       elapsed.value = performance.now() - started;
@@ -140,6 +173,7 @@ onMounted(() => {
   }
 });
 onBeforeUnmount(() => {
+  if (introPlayback.revealed) introPlayback.released = true;
   cancelAnimationFrame(frame);
   clearInterval(typingTimer);
   headerObserver?.disconnect();
@@ -153,14 +187,17 @@ onBeforeUnmount(() => {
   <section
     ref="scene"
     class="home-intro"
-    :class="{ 'is-static': reducedMotion }"
+    :class="{
+      'is-static': reducedMotion,
+      'is-revealed': introPlayback.revealed,
+      'is-released': introPlayback.released,
+    }"
     :style="sceneStyle"
     aria-label="欢迎来到我的创作空间"
   >
     <div class="intro-stage">
       <IntroConfetti
         v-if="!reducedMotion"
-        :progress="scrollProgress"
         :ready="avatarEnter === 1"
         :origin="avatar"
       />
@@ -585,6 +622,11 @@ onBeforeUnmount(() => {
   opacity: var(--copy-opacity, 0);
   transform: translateY(var(--copy-y, 32px));
 }
+.is-revealed .intro-copy {
+  transition:
+    opacity 280ms ease-out,
+    transform 280ms ease-out;
+}
 .intro-greeting {
   font-size: 15px;
   margin-bottom: 13px;
@@ -650,6 +692,16 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   padding: 8px 0 26px;
   color: var(--muted);
+  transition:
+    opacity 400ms ease-out 120ms,
+    visibility 0s linear 520ms;
+}
+.is-released .intro-scroll {
+  opacity: 0;
+  visibility: hidden;
+}
+.is-released .scroll-mouse i {
+  animation: none;
 }
 .intro-scroll-label {
   display: flex;
@@ -805,6 +857,13 @@ onBeforeUnmount(() => {
   .intro-scroll {
     padding-bottom: 18px;
   }
+}
+.is-released {
+  height: var(--stage-height);
+}
+.is-released .intro-stage {
+  position: relative;
+  top: 0;
 }
 .is-static {
   height: auto;
