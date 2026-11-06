@@ -1,37 +1,49 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import Icon from "./Icon.vue";
-defineProps<{ images: string[] }>();
-const dialog = ref<HTMLDialogElement>();
-const selected = ref("");
-function open(src: string) {
-  selected.value = src;
-  dialog.value?.showModal();
+import ImageViewer from "./ImageViewer.vue";
+defineProps<{ images: string[]; compact?: boolean }>();
+const viewer = ref<InstanceType<typeof ImageViewer>>();
+function open(index: number, event: MouseEvent) {
+  void viewer.value?.open(index, event.currentTarget as HTMLElement);
 }
 </script>
 <template>
   <div
     v-if="images.length"
     class="gallery"
-    :class="{ single: images.length === 1 }"
+    :class="{
+      single: images.length === 1,
+      'gallery-compact': compact,
+      'gallery-four': compact && images.length === 4,
+    }"
   >
     <button
       v-for="(src, i) in images"
       :key="src + i"
       class="gallery-thumb"
-      @click="open(src)"
+      @click="open(i, $event)"
       :aria-label="`查看第 ${i + 1} 张图片`"
     >
       <img :src="src" alt="配图" loading="lazy" />
     </button>
   </div>
-  <dialog ref="dialog" class="lightbox" @click="dialog?.close()">
-    <button
-      class="icon-btn lightbox-close"
-      aria-label="关闭图片"
-      @click="dialog?.close()"
-    >
-      <Icon name="close" /></button
-    ><img v-if="selected" :src="selected" alt="配图大图" @click.stop />
-  </dialog>
+  <ImageViewer ref="viewer" :images="images" />
 </template>
+<style scoped>
+.gallery-compact {
+  max-width: 420px;
+  gap: 5px;
+  margin-top: 14px;
+}
+.gallery-compact.gallery-four {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 280px;
+}
+.gallery-compact.single {
+  max-width: 320px;
+}
+.gallery-compact .gallery-thumb {
+  border: 0;
+  border-radius: 3px;
+}
+</style>

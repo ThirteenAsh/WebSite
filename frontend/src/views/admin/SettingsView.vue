@@ -191,12 +191,6 @@ onMounted(load);
           </button>
         </form>
       </section>
-      <div class="settings-note">
-        <Icon name="eye" :size="18" />
-        <p>
-          站内搜索正常开放；所有页面声明不被搜索引擎收录。本站不提供评论、留言或访客注册。
-        </p>
-      </div>
     </aside>
   </div>
 </template>

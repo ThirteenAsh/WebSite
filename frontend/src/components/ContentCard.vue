@@ -1,50 +1,35 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref } from "vue";
-import { api, ensureVisitor } from "../lib/api";
+import { computed } from "vue";
 import type { Content } from "../lib/types";
-import { contentPath, formatDate, repoDisplay } from "../lib/types";
+import {
+  contentPath,
+  formatDate,
+  repoDisplay,
+  splitLineTags,
+} from "../lib/types";
 import { markdownExcerpt } from "../lib/markdown";
 import Icon from "./Icon.vue";
 import LikeButton from "./LikeButton.vue";
-import MarkdownBody from "./MarkdownBody.vue";
 import Gallery from "./Gallery.vue";
+import MomentCard from "./MomentCard.vue";
 const props = defineProps<{
   content: Content;
   index?: number;
   homePreview?: boolean;
 }>();
 const repo = computed(() => repoDisplay(props.content));
+const labels = computed(() => splitLineTags(props.content.label));
+const projectLabels = computed(() => {
+  if (labels.value.length) return labels.value;
+  const languages = splitLineTags(repo.value.language);
+  return languages.length ? languages : ["独立项目"];
+});
 const bodyPreview = computed(
   () =>
     markdownExcerpt(props.content.body_preview || "", 600) ||
     props.content.summary ||
     "打开这篇文章，继续阅读。",
 );
-const card = ref<HTMLElement>(),
-  views = ref(props.content.view_count);
-let observer: IntersectionObserver | undefined;
-onMounted(() => {
-  if (props.content.kind !== "moment" || !card.value) return;
-  observer = new IntersectionObserver(
-    async (entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      observer?.disconnect();
-      try {
-        await ensureVisitor();
-        const stat = await api<{ view_count: number }>(
-          `/contents/${props.content.id}/view`,
-          { method: "POST" },
-        );
-        views.value = stat.view_count;
-      } catch {
-        /* 统计失败不影响阅读 */
-      }
-    },
-    { threshold: 0.5 },
-  );
-  observer.observe(card.value);
-});
-onBeforeUnmount(() => observer?.disconnect());
 </script>
 <template>
   <article v-if="content.kind === 'project'" class="project-card paper-card">
@@ -54,16 +39,16 @@ onBeforeUnmount(() => observer?.disconnect());
       <time :datetime="repo.updated_at || content.published_at || undefined">{{
         formatDate(repo.updated_at || content.published_at)
       }}</time>
-      <span class="project-category">{{
-        content.label || repo.language || "独立项目"
-      }}</span>
+      <span class="project-category">{{ projectLabels.join(" · ") }}</span>
     </aside>
     <div class="project-main">
       <div class="project-card-top">
         <span
-          class="badge"
-          :class="{ orange: content.label !== 'AI 与实验' }"
-          >{{ content.label || repo.language || "独立项目" }}</span
+          v-for="(label, i) in projectLabels"
+          :key="label"
+          class="badge content-tag"
+          :class="`tag-tone-${i % 5}`"
+          >{{ label }}</span
         ><span class="project-repo-name">{{
           repo.name || content.title || "PROJECT"
         }}</span>
@@ -123,19 +108,19 @@ onBeforeUnmount(() => observer?.disconnect());
       </div>
     </div>
   </article>
-  <article
-    v-else
-    ref="card"
-    class="writing-card paper-card"
-    :class="{ 'moment-card': content.kind === 'moment' }"
-  >
+  <MomentCard v-else-if="content.kind === 'moment'" :content="content" />
+  <article v-else class="writing-card paper-card">
     <div class="writing-date">
       <time :datetime="content.published_at || undefined">{{
         formatDate(content.published_at)
       }}</time
-      ><span class="type-dot" :class="{ orange: content.kind === 'article' }">{{
-        content.kind === "moment" ? "日常片刻" : content.label || "文字记录"
-      }}</span>
+      ><span
+        v-for="(label, i) in labels.length ? labels : ['内容分享']"
+        :key="label"
+        class="type-dot content-tag"
+        :class="`tag-tone-${i % 5}`"
+        >{{ label }}</span
+      >
     </div>
     <div class="writing-main">
       <RouterLink
@@ -144,9 +129,7 @@ onBeforeUnmount(() => observer?.disconnect());
         class="card-title"
         ><h3>{{ content.title }}</h3></RouterLink
       >
-      <MarkdownBody v-if="content.kind === 'moment'" :source="content.body" />
       <p
-        v-else
         class="writing-summary"
         :class="{ 'writing-body-preview': homePreview }"
       >
@@ -157,7 +140,7 @@ onBeforeUnmount(() => observer?.disconnect());
         }}
       </p>
       <RouterLink
-        v-if="content.cover_url && content.kind !== 'moment'"
+        v-if="content.cover_url"
         :to="contentPath(content)"
         class="writing-cover"
         ><img :src="content.cover_url" :alt="content.title" loading="lazy"
@@ -165,12 +148,11 @@ onBeforeUnmount(() => observer?.disconnect());
       <Gallery :images="content.images" />
       <div class="writing-bottom">
         <div class="content-stats">
-          <span><Icon name="eye" :size="16" />{{ views }}</span
+          <span><Icon name="eye" :size="16" />{{ content.view_count }}</span
           ><LikeButton :content="content" />
         </div>
         <RouterLink :to="contentPath(content)" class="text-link"
-          >{{ content.kind === "moment" ? "查看记录" : "继续阅读"
-          }}<Icon name="right" :size="16"
+          >继续阅读<Icon name="right" :size="16"
         /></RouterLink>
       </div>
     </div>

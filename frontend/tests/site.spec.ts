@@ -15,27 +15,21 @@ const getEnv = (name: string) =>
   local.match(new RegExp(`^${name}=(.*)$`, "m"))?.[1]?.trim() ||
   "";
 
-test("纸面下拉选择、键盘操作和禁用状态", async ({ page }) => {
+test("发布状态筛选、键盘操作和独立编辑入口", async ({ page }) => {
   await login(page, "/admin/contents");
-  const kind = page.getByRole("combobox", { name: "内容形式" });
-  await kind.click();
-  await page.getByRole("option", { name: "文章", exact: true }).click();
-  await expect(page).toHaveURL(/kind=article/);
-  await expect(kind).toHaveText("文章");
-  await kind.press("ArrowDown");
-  await kind.press("Home");
-  await kind.press("Enter");
-  await expect(page).toHaveURL(/\/admin\/contents$/);
-  const status = page.getByRole("combobox", { name: "发布状态" });
-  await status.click();
-  await page.getByRole("option", { name: "草稿", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "内容形式" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "发布状态" })).toHaveCount(0);
+  const statuses = page.getByRole("navigation", {
+    name: "发布状态",
+    exact: true,
+  });
+  await statuses.getByRole("link", { name: "草稿箱", exact: true }).click();
   await expect(page).toHaveURL(/status=draft/);
-  await status.click();
-  await status.press("Escape");
-  await expect(status).toHaveAttribute("aria-expanded", "false");
-  await status.click();
-  await page.locator("h1").click();
-  await expect(status).toHaveAttribute("aria-expanded", "false");
+  const published = statuses.getByRole("link", { name: "已发布", exact: true });
+  await published.focus();
+  await published.press("Enter");
+  await expect(page).toHaveURL(/\/admin\/contents$/);
+  await expect(published).toHaveAttribute("aria-current", "page");
   const projects = await (
     await page.request.get("/api/admin/contents?kind=project&limit=1")
   ).json();
@@ -55,18 +49,12 @@ test("纸面下拉选择、键盘操作和禁用状态", async ({ page }) => {
     .click();
   await expect(repoName).toHaveValue(originalName);
   await page.goto("/admin/contents/new");
-  await page.getByRole("combobox", { name: "内容形式" }).click();
-  await page.getByRole("option", { name: "短动态", exact: true }).click();
-  await expect(page.getByRole("combobox", { name: "内容形式" })).toHaveText(
-    "短动态",
-  );
-  await page.getByRole("combobox", { name: "内容形式" }).click();
-  await expect(
-    page.locator(".select-pop-enter-active, .select-pop-leave-active"),
-  ).toHaveCount(0);
-  await expect(page.getByRole("option", { selected: true })).toHaveText(
-    "短动态",
-  );
+  await expect(page.locator(".title-input")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "内容形式" })).toHaveCount(0);
+  await page.goto("/admin/contents/new?kind=moment");
+  await expect(page).toHaveURL(/\/admin\/moments\/new$/);
+  await expect(page.locator(".title-input")).toHaveCount(0);
+  await expect(page.getByLabel("Markdown 配文")).toBeVisible();
   await page.screenshot({
     path: "../.local/paper-select-editor.png",
     fullPage: true,
@@ -159,14 +147,14 @@ test("作品独立管理与仓库卡片编辑、隐藏和恢复", async ({ page,
       path: "../.local/project-management.png",
       fullPage: true,
     });
-    await page.goto(`/admin/contents?q=${encodeURIComponent(marker)}`);
+    await page.goto(
+      `/admin/contents?status=draft&q=${encodeURIComponent(marker)}`,
+    );
     await expect(page.locator(".content-table tbody tr")).toHaveCount(1);
     await expect(page.locator(".table-title")).toHaveText(`${marker}-文章`);
-    await page.getByRole("combobox", { name: "内容形式" }).click();
-    await expect(
-      page.getByRole("option", { name: "项目", exact: true }),
-    ).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    await expect(page.getByRole("combobox", { name: "内容形式" })).toHaveCount(
+      0,
+    );
     await page.screenshot({
       path: "../.local/writing-management.png",
       fullPage: true,
@@ -337,6 +325,7 @@ test("Markdown 编辑、草稿隐藏、发布、搜索、点赞和撤回", async
       .fill(
         '## 真实预览\n\n**中文全文检索验收**，支持代码和表格。\n\n```go\nfmt.Println("hello")\n```\n\n| 项目 | 状态 |\n| --- | --- |\n| 发布流程 | 正常 |\n\n<script>window.__unsafe = true</script>',
       );
+    await page.getByRole("tab", { name: "预览", exact: true }).click();
     await expect(page.locator(".preview-body h2")).toHaveText("真实预览");
     await expect(page.locator(".preview-body table")).toBeVisible();
     await expect(page.locator(".preview-body script")).toHaveCount(0);
@@ -407,7 +396,7 @@ test("Markdown 编辑、草稿隐藏、发布、搜索、点赞和撤回", async
   }
 });
 
-test("短动态图片上传、直接展示、图片引用保护和清理", async ({
+test("日常图片上传、直接展示、旧链接兼容、图片引用保护和清理", async ({
   page,
   browser,
 }) => {
@@ -422,8 +411,8 @@ test("短动态图片上传、直接展示、图片引用保护和清理", async
   try {
     await login(page, "/admin/contents/new?kind=moment");
     token = await csrf(page.request);
-    await page.getByLabel("Markdown 正文").fill(marker);
-    await page.getByRole("button", { name: "添加配图" }).click();
+    await page.getByLabel("Markdown 配文").fill(marker);
+    await page.getByRole("button", { name: "从图片库选择" }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
     const responsePromise = page.waitForResponse(
       (r) =>
@@ -438,24 +427,37 @@ test("短动态图片上传、直接展示、图片引用保护和清理", async
     const uploaded = await (await responsePromise).json();
     imageID = uploaded.id;
     await expect(page.getByRole("dialog")).not.toBeVisible();
-    await expect(page.locator(".editor-gallery img")).toHaveCount(1);
-    await page.getByRole("button", { name: "发布内容", exact: true }).click();
-    await expect(page).toHaveURL(/\/admin\/contents\/\d+$/);
-    id = Number(page.url().split("/").pop());
-    await publicPage.goto("/articles");
+    await expect(page.locator(".moment-edit-grid img")).toHaveCount(1);
+    const createdPromise = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/admin/contents") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "发布日常", exact: true }).click();
+    const created = await createdPromise;
+    expect(created.ok()).toBeTruthy();
+    id = (await created.json()).id;
+    await expect(page).toHaveURL(/\/admin\/moments\/\d+$/);
+    await publicPage.goto("/moments");
     const card = publicPage.locator(".moment-card").filter({ hasText: marker });
     await expect(card).toBeVisible();
     await expect(card.locator(".gallery img")).toHaveCount(1);
     await card.getByRole("button", { name: "查看第 1 张图片" }).click();
     await expect(publicPage.locator(".lightbox[open]")).toBeVisible();
     await publicPage.keyboard.press("Escape");
+    await publicPage.goto(`/articles/${id}`);
+    await expect(publicPage).toHaveURL(new RegExp(`/moments/${id}$`));
+    await expect(publicPage.locator(".moment-card")).toContainText(marker);
+    await expect(publicPage.locator(".detail-header")).toHaveCount(0);
     const deletion = await page.request.delete(
       `/api/admin/uploads/${imageID}`,
       { headers: { "X-CSRF-Token": token } },
     );
     expect(deletion.status()).toBe(409);
     await page.goto("/admin/media");
-    await expect(page.locator(".media-card")).toHaveCount(1);
+    await expect(
+      page.locator(`.media-card img[src="${uploaded.url}"]`),
+    ).toBeVisible();
     await page.screenshot({
       path: "../.local/media-desktop.png",
       fullPage: true,

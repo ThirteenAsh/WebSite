@@ -19,13 +19,13 @@ func (a *Server) publicSite(w http.ResponseWriter, r *http.Request) {
 		serverError(w, e)
 		return
 	}
-	var projects, writings int
-	e = a.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(kind='project'),0),COALESCE(SUM(kind<>'project'),0) FROM contents WHERE status='published'`).Scan(&projects, &writings)
+	var projects, articles, moments int
+	e = a.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(kind='project'),0),COALESCE(SUM(kind='article'),0),COALESCE(SUM(kind='moment'),0) FROM contents WHERE status='published'`).Scan(&projects, &articles, &moments)
 	if e != nil {
 		serverError(w, e)
 		return
 	}
-	jsonResponse(w, 200, map[string]any{"settings": s, "counts": map[string]int{"projects": projects, "writings": writings}})
+	jsonResponse(w, 200, map[string]any{"settings": s, "counts": map[string]int{"projects": projects, "articles": articles, "moments": moments, "writings": articles + moments}})
 }
 
 func (a *Server) listPublic(w http.ResponseWriter, r *http.Request) { a.listContents(w, r, false) }

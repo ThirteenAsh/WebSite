@@ -66,11 +66,11 @@ for (const failure of ["连接中断", "服务响应异常"]) {
     try {
       await page.goto("/");
       const heading = page.locator(".intro-copy h1");
-      await expect(heading).toContainText("啊哦，后端小伙伴");
-      await expect(heading).toContainText("暂时失联啦！");
+      await expect(heading).toContainText("啊哦后端似乎断啦");
+      await expect(heading).toContainText("暂时失联啦");
       await expect(heading).not.toContainText("把想法写成代码");
       await expect(page.locator(".terminal-output")).toContainText(
-        "暂时失联啦！",
+        "暂时失联啦",
       );
       await expect(page.locator(".terminal-files")).toContainText(
         "啊哦，作品清单还没送到。",
@@ -116,7 +116,7 @@ for (const failure of ["连接中断", "服务响应异常"]) {
       await retry.click();
       await expect.poll(() => siteRequests).toBe(2);
       await expect(retry).toBeEnabled();
-      await expect(heading).toContainText("暂时失联啦！");
+      await expect(heading).toContainText("暂时失联啦");
 
       available = true;
       await retry.click();

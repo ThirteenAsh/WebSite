@@ -49,6 +49,12 @@ export interface SiteSettings {
   github_url: string;
   skills: string[];
 }
+export interface SiteCounts {
+  projects: number;
+  writings: number;
+  articles?: number;
+  moments?: number;
+}
 export interface Page<T> {
   items: T[];
   total: number;
@@ -94,9 +100,9 @@ export interface Dashboard {
   github_sync: string;
 }
 export const contentPath = (c: Pick<Content, "kind" | "id">) =>
-  `/${c.kind === "project" ? "projects" : "articles"}/${c.id}`;
+  `/${c.kind === "project" ? "projects" : c.kind === "moment" ? "moments" : "articles"}/${c.id}`;
 export const adminContentPath = (c: Pick<Content, "kind" | "id">) =>
-  `/admin/${c.kind === "project" ? "projects" : "contents"}/${c.id}`;
+  `/admin/${c.kind === "project" ? "projects" : c.kind === "moment" ? "moments" : "contents"}/${c.id}`;
 export function repoDisplay(c: Content) {
   const v = c.repo_overrides || {};
   return {
@@ -106,6 +112,16 @@ export function repoDisplay(c: Content) {
     url: v.url ?? c.repo_url,
     updated_at: v.updated_at ?? c.repo_updated_at,
   };
+}
+export function splitLineTags(value?: string | null): string[] {
+  return [
+    ...new Set(
+      (value || "")
+        .split(/\r\n?|\n/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 export const kindName = (kind: string) =>
   ({ project: "项目", article: "文章", moment: "日常" })[kind] || kind;

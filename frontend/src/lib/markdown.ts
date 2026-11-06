@@ -1,5 +1,6 @@
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import type { Content } from "./types";
 
 export function renderMarkdown(source: string) {
   return DOMPurify.sanitize(
@@ -26,4 +27,9 @@ export function markdownExcerpt(source: string, limit = 160) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, limit);
+}
+export function contentDescription(c: Content) {
+  return c.kind === "moment"
+    ? markdownExcerpt(c.body, 60) || `${c.images.length} 张图片`
+    : c.title;
 }

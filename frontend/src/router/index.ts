@@ -4,12 +4,13 @@ import PublicLayout from "../layouts/PublicLayout.vue";
 import HomeView from "../views/HomeView.vue";
 import ListingView from "../views/ListingView.vue";
 import DetailView from "../views/DetailView.vue";
+import MomentsView from "../views/MomentsView.vue";
 import LoginView from "../views/admin/LoginView.vue";
 import AdminLayout from "../layouts/AdminLayout.vue";
 import DashboardView from "../views/admin/DashboardView.vue";
 import ManageView from "../views/admin/ManageView.vue";
 import EditorView from "../views/admin/EditorView.vue";
-import GitHubView from "../views/admin/GitHubView.vue";
+import MomentEditorView from "../views/admin/MomentEditorView.vue";
 import MediaView from "../views/admin/MediaView.vue";
 import SettingsView from "../views/admin/SettingsView.vue";
 
@@ -36,8 +37,9 @@ const router = createRouter({
           path: "articles",
           component: ListingView,
           props: { mode: "articles" },
-          meta: { title: "文章与日常" },
+          meta: { title: "文章" },
         },
+        { path: "moments", component: MomentsView, meta: { title: "日常" } },
         {
           path: "search",
           component: ListingView,
@@ -46,6 +48,7 @@ const router = createRouter({
         },
         { path: "projects/:id", component: DetailView },
         { path: "articles/:id", component: DetailView },
+        { path: "moments/:id", component: DetailView, meta: { title: "日常" } },
         {
           path: ":pathMatch(.*)*",
           component: () => import("../views/NotFoundView.vue"),
@@ -83,15 +86,20 @@ const router = createRouter({
         {
           path: "contents",
           component: ManageView,
-          props: { section: "writings" },
+          props: { section: "articles" },
           beforeEnter: (to) =>
             to.query.kind === "project"
               ? {
                   path: "/admin/projects",
                   query: { ...to.query, kind: undefined },
                 }
-              : true,
-          meta: { title: "文章与日常", section: "writings" },
+              : to.query.kind === "moment"
+                ? {
+                    path: "/admin/moments",
+                    query: { ...to.query, kind: undefined },
+                  }
+                : true,
+          meta: { title: "文章管理", section: "articles" },
         },
         {
           path: "contents/new",
@@ -99,18 +107,35 @@ const router = createRouter({
           beforeEnter: (to) =>
             to.query.kind === "project"
               ? { path: "/admin/projects/new" }
-              : true,
-          meta: { title: "新建记录", section: "writings" },
+              : to.query.kind === "moment"
+                ? { path: "/admin/moments/new" }
+                : true,
+          meta: { title: "新建文章", section: "articles" },
         },
         {
           path: "contents/:id",
           component: EditorView,
-          meta: { title: "编辑记录", section: "writings" },
+          meta: { title: "编辑文章", section: "articles" },
+        },
+        {
+          path: "moments",
+          component: ManageView,
+          props: { section: "moments" },
+          meta: { title: "日常管理", section: "moments" },
+        },
+        {
+          path: "moments/new",
+          component: MomentEditorView,
+          meta: { title: "记录日常", section: "moments" },
+        },
+        {
+          path: "moments/:id",
+          component: MomentEditorView,
+          meta: { title: "编辑日常", section: "moments" },
         },
         {
           path: "github",
-          component: GitHubView,
-          meta: { title: "GitHub 导入与同步", section: "projects" },
+          redirect: { path: "/admin/projects", query: { view: "github" } },
         },
         { path: "media", component: MediaView, meta: { title: "图片库" } },
         {

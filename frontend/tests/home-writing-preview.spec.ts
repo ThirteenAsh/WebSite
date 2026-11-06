@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { blankContent } from "../src/lib/types";
 
-test("首页文章显示三行正文并渐隐，短文字和列表详情正常展示", async ({
+test("首页按发布顺序混排文章与日常，文章预览和列表详情正常展示", async ({
   page,
 }) => {
   const body =
@@ -22,7 +22,18 @@ test("首页文章显示三行正文并渐隐，短文字和列表详情正常�
     id: 900002,
     title: "今天的小记",
     body: "今天也有新的收获。",
+    published_at: "2026-11-01T00:00:00Z",
+    updated_at: "2026-11-04T00:00:00Z",
   };
+  const moment = {
+    ...blankContent("moment"),
+    id: 900003,
+    body: "**文章之间的一条日常**",
+    images: ["/avatar.jpg"],
+    status: "published",
+    published_at: "2026-11-02T00:00:00Z",
+  };
+  const homeQueries: string[] = [];
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/contents**", async (route) => {
@@ -31,12 +42,17 @@ test("首页文章显示三行正文并渐隐，短文字和列表详情正常�
       return route.fulfill({ json: { view_count: 1 } });
     if (url.pathname === `/api/contents/${article.id}`)
       return route.fulfill({ json: article });
+    if (url.searchParams.get("kind") === "writing")
+      homeQueries.push(url.search);
     const items =
       url.searchParams.get("kind") === "project"
         ? []
-        : [article, short].map((c) => ({
+        : (url.searchParams.get("kind") === "writing"
+            ? [article, moment, short]
+            : [article, short]
+          ).map((c) => ({
             ...c,
-            body: "",
+            body: c.kind === "moment" ? c.body : "",
             body_preview:
               url.searchParams.get("preview") === "1"
                 ? c.body.slice(0, 2000)
@@ -47,6 +63,19 @@ test("首页文章显示三行正文并渐隐，短文字和列表详情正常�
     });
   });
   await page.goto("/");
+  await expect(page.locator(".writing-list > article")).toHaveCount(3);
+  expect(homeQueries).toEqual(["?kind=writing&limit=5&preview=1"]);
+  await expect(page.locator("#writing-title")).toContainText("最近的记录");
+  await expect(page.locator("#moments-title")).toHaveCount(0);
+  const cards = page.locator(".writing-list > article");
+  await expect(cards.nth(0)).toContainText(article.title);
+  await expect(cards.nth(1)).toContainText("文章之间的一条日常");
+  await expect(cards.nth(1).locator(".gallery img")).toHaveCount(1);
+  await expect(cards.nth(1).locator(".moment-date")).toHaveAttribute(
+    "href",
+    "/moments/900003",
+  );
+  await expect(cards.nth(2)).toContainText(short.title);
   const preview = page.locator(".writing-body-preview").first();
   await expect(preview).toContainText(
     "这是正文开头，保留文字，去除 Markdown 标记",
@@ -88,11 +117,9 @@ test("首页文章显示三行正文并渐隐，短文字和列表详情正常�
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBeTruthy();
-    await page
-      .locator(".writing-list")
-      .screenshot({
-        path: `../.local/home-writing-preview-${viewport.name}.png`,
-      });
+    await page.locator(".writing-list").screenshot({
+      path: `../.local/home-writing-preview-${viewport.name}.png`,
+    });
   }
   await page.getByRole("button", { name: "切换为深色模式" }).click();
   await preview.scrollIntoViewIfNeeded();

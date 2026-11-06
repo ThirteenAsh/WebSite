@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -69,6 +70,13 @@ func TestIntegration(t *testing.T) {
 		t.Fatalf("迁入应为4个项目，实际 %d: %v", seedCount, e)
 	}
 	// 模拟已有站点升级：旧作品没有自定义字段，升级后仍应使用原始仓库信息。
+	var legacyLabel string
+	if e = db.QueryRow("SELECT label FROM contents ORDER BY id LIMIT 1").Scan(&legacyLabel); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec("ALTER TABLE contents MODIFY COLUMN label VARCHAR(40) NOT NULL DEFAULT ''"); e != nil {
+		t.Fatal(e)
+	}
 	if _, e = db.Exec("ALTER TABLE contents DROP COLUMN repo_overrides"); e != nil {
 		t.Fatal(e)
 	}
@@ -78,7 +86,7 @@ func TestIntegration(t *testing.T) {
 		}
 	}
 	legacy, e := repository.ScanContent(db.QueryRow("SELECT " + repository.ContentColumns + " FROM contents ORDER BY id LIMIT 1"))
-	if e != nil || legacy.RepoName != "key-switch" || legacy.RepoOverrides.Name != nil {
+	if e != nil || legacy.RepoName != "key-switch" || legacy.RepoOverrides.Name != nil || legacy.Label != legacyLabel {
 		t.Fatalf("升级改变了旧作品: %+v %v", legacy, e)
 	}
 	hash, _ := bcrypt.GenerateFromPassword([]byte("test-password-2026"), bcrypt.MinCost)
@@ -243,6 +251,74 @@ func TestIntegration(t *testing.T) {
 		if detail.Body != c.Body {
 			t.Fatal("完整正文被截断")
 		}
+	})
+	t.Run("日常独立列表、图片顺序、发布和撤回", func(t *testing.T) {
+		c := model.Content{Kind: "moment", Body: "日常拆分验收 **配文**", Title: "旧标题", Label: "旧标记", CoverURL: "/old-cover.png", Summary: "旧摘要", Status: "draft"}
+		for i := 0; i < 9; i++ {
+			c.Images = append(c.Images, fmt.Sprintf("/uploads/moment-%d.png", i))
+		}
+		var saved struct {
+			ID int64 `json:"id"`
+		}
+		_ = json.Unmarshal(request(admin, "POST", "/api/admin/contents", c, 201, csrf), &saved)
+		adminPath := fmt.Sprintf("/api/admin/contents/%d", saved.ID)
+		publicPath := fmt.Sprintf("/api/contents/%d", saved.ID)
+		defer request(admin, "DELETE", adminPath, nil, 200, csrf)
+		request(visitor, "GET", publicPath, nil, 404, "")
+		var list struct {
+			Items []model.Content `json:"items"`
+			Total int             `json:"total"`
+		}
+		_ = json.Unmarshal(request(visitor, "GET", "/api/contents?kind=moment&q=日常拆分验收", nil, 200, ""), &list)
+		if list.Total != 0 {
+			t.Fatal("草稿日常泄漏到公开列表")
+		}
+		c.Status = "published"
+		slices.Reverse(c.Images)
+		request(admin, "PUT", adminPath, c, 200, csrf)
+		var detail model.Content
+		_ = json.Unmarshal(request(visitor, "GET", publicPath, nil, 200, ""), &detail)
+		if !slices.Equal(detail.Images, c.Images) || detail.Body != c.Body || detail.Title != "" || detail.Label != "" || detail.CoverURL != "" || detail.Summary != "" {
+			t.Fatalf("日常字段或图片顺序不正确: %+v", detail)
+		}
+		for _, prefix := range []string{"/api/contents", "/api/admin/contents"} {
+			for _, kind := range []string{"article", "moment"} {
+				_ = json.Unmarshal(request(admin, "GET", prefix+"?kind="+kind+"&q=日常拆分验收", nil, 200, csrf), &list)
+				want := 0
+				if kind == "moment" {
+					want = 1
+				}
+				if list.Total != want {
+					t.Fatalf("%s %s 栏目混入了其他形式: %+v", prefix, kind, list)
+				}
+			}
+		}
+		c.Images = append(c.Images, "/uploads/tenth.png")
+		request(admin, "PUT", adminPath, c, 400, csrf)
+		// 超限请求不能覆盖已发布的九张图片。
+		_ = json.Unmarshal(request(visitor, "GET", publicPath, nil, 200, ""), &detail)
+		if len(detail.Images) != 9 {
+			t.Fatal("超限请求改变了已保存的图片")
+		}
+		c.Images = nil
+		request(admin, "PUT", adminPath, c, 200, csrf)
+		_ = json.Unmarshal(request(visitor, "GET", publicPath, nil, 200, ""), &detail)
+		if len(detail.Images) != 0 || detail.Body != c.Body {
+			t.Fatal("纯文字日常保存失败")
+		}
+		c.Body = ""
+		c.Images = []string{"/uploads/only-image.png"}
+		request(admin, "PUT", adminPath, c, 200, csrf)
+		_ = json.Unmarshal(request(visitor, "GET", publicPath, nil, 200, ""), &detail)
+		if detail.Body != "" || !slices.Equal(detail.Images, c.Images) {
+			t.Fatal("纯图片日常保存失败")
+		}
+		c.Images = nil
+		request(admin, "PUT", adminPath, c, 400, csrf)
+		c.Body = "撤回日常"
+		c.Status = "draft"
+		request(admin, "PUT", adminPath, c, 200, csrf)
+		request(visitor, "GET", publicPath, nil, 404, "")
 	})
 	t.Run("点赞幂等取消和并发", func(t *testing.T) {
 		path := fmt.Sprintf("/api/contents/%d/like", contentID)
@@ -514,6 +590,33 @@ func TestIntegration(t *testing.T) {
 			t.Fatalf("当天任务发生重复: %v %v", ran, err)
 		}
 	})
+	t.Run("多项标记与主要语言保存及公开展示", func(t *testing.T) {
+		labels := strings.Repeat("甲", 30) + "\n" + strings.Repeat("乙", 30)
+		languages := strings.Repeat("A", 60) + "\n" + strings.Repeat("B", 60)
+		for _, kind := range []string{"article", "project"} {
+			c := model.Content{Kind: kind, Title: "多项标记验收", Status: "published", Label: " \r\n" + strings.ReplaceAll(labels, "\n", "\r\n") + "\n" + strings.Repeat("甲", 30)}
+			if kind == "project" {
+				c.RepoOverrides.Language = &languages
+			}
+			var saved struct {
+				ID int64 `json:"id"`
+			}
+			if e := json.Unmarshal(request(admin, "POST", "/api/admin/contents", c, 201, csrf), &saved); e != nil {
+				t.Fatal(e)
+			}
+			var fetched model.Content
+			if e := json.Unmarshal(request(visitor, "GET", fmt.Sprintf("/api/contents/%d", saved.ID), nil, 200, ""), &fetched); e != nil {
+				t.Fatal(e)
+			}
+			if fetched.Label != labels {
+				t.Fatalf("标记未按换行规范化保存: %q", fetched.Label)
+			}
+			if kind == "project" && (fetched.RepoOverrides.Language == nil || *fetched.RepoOverrides.Language != languages) {
+				t.Fatal("多项主要语言未完整保存")
+			}
+			request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", saved.ID), nil, 200, csrf)
+		}
+	})
 	t.Run("设置保存及密码会话撤销", func(t *testing.T) {
 		s, e := app.settings(context.Background())
 		if e != nil {
@@ -566,6 +669,32 @@ func TestValidateContent(t *testing.T) {
 	c := model.Content{Kind: "moment", Status: "draft", Body: "日常记录"}
 	if e := validateContent(&c); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestMomentImages(t *testing.T) {
+	for _, count := range []int{0, 1, 4, 9, 10} {
+		c := model.Content{Kind: "moment", Status: "draft", Body: "**日常配文**", Title: "不再使用的标题", Label: "不再使用的标记"}
+		for i := 0; i < count; i++ {
+			c.Images = append(c.Images, fmt.Sprintf("/uploads/%d.png", i))
+		}
+		err := validateContent(&c)
+		if (err == nil) != (count <= 9) {
+			t.Fatalf("%d 张图片校验结果不正确: %v", count, err)
+		}
+		if c.Title != "" || c.Label != "" {
+			t.Fatal("日常仍保留文章专属字段")
+		}
+	}
+	for _, images := range [][]string{nil, {""}, {"javascript:alert(1)"}} {
+		c := model.Content{Kind: "moment", Status: "draft", Images: images}
+		if validateContent(&c) == nil {
+			t.Fatalf("空日常或无效图片通过校验: %+v", c)
+		}
+	}
+	c := model.Content{Kind: "moment", Status: "draft", Images: []string{"/uploads/image-only.png"}}
+	if err := validateContent(&c); err != nil {
+		t.Fatalf("纯图片日常应允许保存: %v", err)
 	}
 }
 

@@ -78,24 +78,14 @@ function toggle(id: number) {
 onMounted(load);
 </script>
 <template>
-  <div class="admin-page-heading">
-    <div>
-      <p class="eyebrow">FROM IDEAS TO REPOSITORIES</p>
-      <h1>GitHub 导入与同步<span class="heading-dot">.</span></h1>
-      <p>挑选想展示的公开仓库，补充介绍后再发布。</p>
-    </div>
-    <button class="btn secondary" :disabled="syncing" @click="sync">
+  <div class="info-strip">
+    <Icon name="code" :size="19" /><span
+      >每天自动同步一次仓库信息。导入的项目先存为草稿，不会自动公开。</span
+    ><button class="btn secondary" :disabled="syncing" @click="sync">
       <Icon name="refresh" :class="{ spinning: syncing }" :size="17" />{{
         syncing ? "正在同步…" : "同步已选项目"
       }}
     </button>
-  </div>
-  <div class="info-strip">
-    <Icon name="code" :size="19" /><span
-      >每天自动同步一次仓库信息。导入的项目先存为草稿，不会自动公开。</span
-    ><RouterLink to="/admin/projects" class="text-link"
-      >前往作品管理 →</RouterLink
-    >
   </div>
   <div v-if="syncResult" class="admin-panel sync-result">
     <strong>本次同步更新 {{ syncResult.updated }} 个项目</strong>

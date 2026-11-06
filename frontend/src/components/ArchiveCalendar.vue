@@ -15,9 +15,9 @@ const copy = computed(() =>
       }
     : {
         title: "我的文字档案",
-        label: "文章与日常",
+        label: "文章与随笔",
         motto: "KEEP WRITING",
-        caption: "一些实用分享或日常",
+        caption: "一些实用分享与思考",
         unit: "篇记录",
       },
 );

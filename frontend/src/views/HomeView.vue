@@ -32,6 +32,44 @@ onMounted(load);
 </script>
 <template>
   <HomeIntro @retry="retryHome" />
+  <section class="about-section" aria-labelledby="about-title">
+    <div class="about-divider">
+      <div class="about-avatar">
+        <img
+          :src="site.settings?.avatar_url || '/avatar.jpg'"
+          :alt="`${site.settings?.name || 'ThirteenAsh'} 的头像`"
+          width="96"
+          height="96"
+        />
+      </div>
+    </div>
+    <div class="about-copy">
+      <p class="eyebrow">A LITTLE ABOUT ME</p>
+      <h2 id="about-title">
+        你好，我是 {{ site.settings?.name || "ThirteenAsh"
+        }}<span class="heading-dot">.</span>
+      </h2>
+      <p v-if="site.settings?.about" class="about-description">
+        {{ site.settings.about }}
+      </p>
+      <div v-if="site.settings?.skills.length" class="about-skills">
+        <span v-for="skill in site.settings.skills" :key="skill">{{
+          skill
+        }}</span>
+      </div>
+      <a
+        v-if="site.settings?.github_url"
+        :href="site.settings.github_url"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-link about-link"
+        ><Icon name="github" :size="17" />在 GitHub 看更多<Icon
+          name="arrow"
+          :size="15"
+        />
+      </a>
+    </div>
+  </section>
   <div v-if="error" class="error-panel" role="alert">
     {{ error }} <button class="text-link" @click="load">重试</button>
   </div>
@@ -68,12 +106,17 @@ onMounted(load);
     <div class="section-heading">
       <div>
         <p class="eyebrow">02 / NOTES ALONG THE WAY</p>
-        <h2 id="writing-title">最近的...<span class="heading-dot">.</span></h2>
-        <p class="section-description">内容分享和随笔，偶尔会更新的！</p>
+        <h2 id="writing-title">最近...<span class="heading-dot">.</span></h2>
+        <p class="section-description">内容分享和日常，偶尔会更新的！</p>
       </div>
-      <RouterLink to="/articles" class="text-link"
-        >全部记录<Icon name="right" :size="17"
-      /></RouterLink>
+      <div class="home-writing-links">
+        <RouterLink to="/articles" class="text-link"
+          >全部文章<Icon name="right" :size="17"
+        /></RouterLink>
+        <RouterLink to="/moments" class="text-link"
+          >全部日常<Icon name="right" :size="17"
+        /></RouterLink>
+      </div>
     </div>
     <div v-if="loading" class="loading-panel" role="status">正在整理文字…</div>
     <div v-else-if="writings.length" class="writing-list">
@@ -90,23 +133,11 @@ onMounted(load);
       <p>一些技术分享，一些日常片刻。<br />会写在这里。</p>
     </div>
   </section>
-  <section class="about-section">
-    <p class="eyebrow">A LITTLE ABOUT ME</p>
-    <div>
-      <h2>你好，我是 {{ site.settings?.name || "ThirteenAsh" }}。</h2>
-      <p>{{ site.settings?.about }}</p>
-      <div class="tech-tags">
-        <span v-for="skill in site.settings?.skills" :key="skill">{{
-          skill
-        }}</span>
-      </div>
-      <a
-        :href="site.settings?.github_url"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-link"
-        >在 GitHub 看更多<Icon name="arrow" :size="16"
-      /></a>
-    </div>
-  </section>
 </template>
+<style scoped>
+.home-writing-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+}
+</style>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, session, errorMessage } from "../lib/api";
 import { showError } from "../lib/dialogs";
@@ -9,11 +10,26 @@ document.documentElement.dataset.theme = "light";
 const nav = [
   { path: "/admin", label: "工作台", icon: "grid" },
   { path: "/admin/projects", label: "作品管理", icon: "code" },
-  { path: "/admin/contents", label: "文章与日常", icon: "book" },
-  { path: "/admin/github", label: "GitHub 导入与同步", icon: "github" },
+  { path: "/admin/contents", label: "文章管理", icon: "book" },
+  { path: "/admin/moments", label: "日常管理", icon: "image" },
   { path: "/admin/media", label: "图片库", icon: "image" },
   { path: "/admin/settings", label: "站点设置", icon: "settings" },
 ];
+async function revealSelectedNav() {
+  await nextTick();
+  const selected = document.querySelector<HTMLElement>(
+    ".admin-shell--moments .admin-sidebar nav a.selected",
+  );
+  if (selected && window.innerWidth <= 900) {
+    const navigation = selected.parentElement!;
+    navigation.scrollLeft =
+      selected.offsetLeft -
+      navigation.offsetLeft -
+      (navigation.clientWidth - selected.offsetWidth) / 2;
+  }
+}
+onMounted(revealSelectedNav);
+watch(() => route.path, revealSelectedNav);
 async function logout() {
   try {
     await api("/admin/logout", { method: "POST" });
@@ -25,11 +41,14 @@ async function logout() {
 }
 </script>
 <template>
-  <div class="admin-shell">
+  <div
+    class="admin-shell"
+    :class="{ 'admin-shell--moments': route.meta.section === 'moments' }"
+  >
     <aside class="admin-sidebar">
       <RouterLink to="/admin" class="admin-brand"
         ><span class="admin-logo"><Icon name="code" :size="23" /></span>
-        <div>ThirteenAsh<small>我的创作后台</small></div></RouterLink
+        <div>ThirteenAsh<small>创作后台</small></div></RouterLink
       >
       <p class="sidebar-caption">WORKSPACE</p>
       <nav aria-label="后台导航">
@@ -44,9 +63,7 @@ async function logout() {
                 : route.path.startsWith(item.path),
           }"
           ><Icon :name="item.icon" />{{ item.label
-          }}<span v-if="item.path === '/admin/contents'" class="nav-shortcut"
-            >✎</span
-          ></RouterLink
+          }}</RouterLink
         >
       </nav>
       <div class="sidebar-bottom">
@@ -60,15 +77,9 @@ async function logout() {
       </div>
     </aside>
     <div class="admin-workspace">
-      <header class="admin-topbar">
-        <nav aria-label="当前位置" class="admin-breadcrumb">
-          <span>个人空间</span><span class="muted" aria-hidden="true">/</span>
-          <span aria-current="page">{{ route.meta.title }}</span>
-        </nav>
-      </header>
       <main class="admin-main">
         <RouterView v-slot="{ Component, route: pageRoute }"
-          ><Transition name="page" mode="out-in"
+          ><Transition name="admin-page" mode="out-in"
             ><div :key="pageRoute.path" class="route-page">
               <component :is="Component" /></div></Transition
         ></RouterView>
@@ -76,3 +87,48 @@ async function logout() {
     </div>
   </div>
 </template>
+<style scoped>
+@media (max-width: 900px) {
+  .admin-shell--moments {
+    min-width: 0;
+    display: block;
+  }
+  .admin-shell--moments .admin-sidebar {
+    position: static;
+    width: 100%;
+    padding: 16px 20px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    gap: 16px;
+  }
+  .admin-shell--moments .sidebar-caption,
+  .admin-shell--moments .sidebar-bottom {
+    display: none;
+  }
+  .admin-shell--moments .admin-sidebar nav {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    padding-bottom: 5px;
+  }
+  .admin-shell--moments .admin-sidebar nav a {
+    flex-shrink: 0;
+    padding: 8px 10px;
+  }
+  .admin-shell--moments .admin-workspace {
+    min-width: 0;
+    width: 100%;
+    margin: 0;
+  }
+  .admin-shell--moments .admin-main {
+    padding: 25px 20px;
+  }
+  .admin-shell--moments :deep(.admin-page-heading) {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .admin-shell--moments :deep(.admin-filters) {
+    flex-wrap: wrap;
+  }
+}
+</style>

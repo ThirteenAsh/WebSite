@@ -19,15 +19,16 @@ import {
   blankContent,
   contentPath,
   adminContentPath,
+  splitLineTags,
   type Content,
 } from "../../lib/types";
 import { markdownExcerpt } from "../../lib/markdown";
 import Icon from "../../components/Icon.vue";
+import AdminBackLink from "../../components/AdminBackLink.vue";
 import MarkdownBody from "../../components/MarkdownBody.vue";
 import ImageField from "../../components/ImageField.vue";
 import MediaPicker from "../../components/MediaPicker.vue";
 import Gallery from "../../components/Gallery.vue";
-import PaperSelect from "../../components/PaperSelect.vue";
 import RepoCardEditor from "../../components/RepoCardEditor.vue";
 const route = useRoute(),
   router = useRouter(),
@@ -37,6 +38,7 @@ const route = useRoute(),
   error = ref(""),
   baseline = ref(""),
   stack = ref("");
+const preview = ref(false);
 const textarea = ref<HTMLTextAreaElement>(),
   picker = ref<InstanceType<typeof MediaPicker>>(),
   imageTarget = ref<"body" | "gallery">("body");
@@ -53,20 +55,25 @@ const isProject = computed(() => route.meta.section === "projects");
 const listPath = computed(() =>
   isProject.value ? "/admin/projects" : "/admin/contents",
 );
-const listLabel = computed(() => (isProject.value ? "作品管理" : "文章与日常"));
+const listLabel = computed(() => (isProject.value ? "作品管理" : "文章管理"));
+function navigateEditorTab(event: KeyboardEvent) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const tabs = (event.currentTarget as HTMLElement).parentElement;
+  preview.value =
+    event.key === "Home" ? false : event.key === "End" ? true : !preview.value;
+  nextTick(() =>
+    tabs?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus(),
+  );
+}
 async function load() {
   loading.value = true;
   error.value = "";
+  preview.value = false;
   try {
     content.value = route.params.id
       ? await api<Content>(`/admin/contents/${route.params.id}`)
-      : blankContent(
-          isProject.value
-            ? "project"
-            : route.query.kind === "moment"
-              ? "moment"
-              : "article",
-        );
+      : blankContent(isProject.value ? "project" : "article");
     if (route.params.id && route.path !== adminContentPath(content.value)) {
       baseline.value = "";
       await router.replace(adminContentPath(content.value));
@@ -88,21 +95,22 @@ watch(() => [route.params.id, route.query.kind, route.meta.section], load, {
 async function save(status: Content["status"]) {
   if (busy.value) return;
   const c = JSON.parse(JSON.stringify(content.value)) as Content;
+  c.label = splitLineTags(c.label).join("\n");
+  if (c.repo_overrides.language != null) {
+    c.repo_overrides.language = splitLineTags(c.repo_overrides.language).join(
+      "\n",
+    );
+  }
   c.tech_stack = stack.value
     .split(/[,，\n]/)
     .map((t) => t.trim())
     .filter(Boolean);
   c.status = status;
-  if (c.kind !== "moment" && !c.title.trim()) {
+  if (!c.title.trim()) {
     void showError("请先填写标题", "还差一个标题");
     return;
   }
-  if (c.kind === "moment" && !c.body.trim() && !c.images.length) {
-    void showError("短动态至少需要文字或配图", "补充一点内容吧");
-    return;
-  }
-  if (!c.summary.trim() && c.kind !== "moment")
-    c.summary = markdownExcerpt(c.body);
+  if (!c.summary.trim()) c.summary = markdownExcerpt(c.body);
   busy.value = true;
   try {
     const isNew = !c.id;
@@ -197,14 +205,12 @@ onBeforeRouteUpdate((to, from) => {
   <div v-if="loading" class="loading-panel">正在打开编辑器…</div>
   <div v-else-if="error" class="error-panel" role="alert">
     {{ error }} <button class="text-link" @click="load">重试</button
-    ><RouterLink :to="listPath">返回{{ listLabel }}</RouterLink>
+    ><AdminBackLink :to="listPath" :label="listLabel" />
   </div>
   <template v-else
     ><div class="editor-heading">
       <div>
-        <RouterLink :to="listPath" class="text-link"
-          ><Icon name="back" :size="16" />{{ listLabel }}</RouterLink
-        >
+        <AdminBackLink :to="listPath" :label="listLabel" />
         <h1>
           {{
             isProject
@@ -212,8 +218,8 @@ onBeforeRouteUpdate((to, from) => {
                 ? "编辑作品"
                 : "添加一件新作品。"
               : content.id
-                ? "朋友圈。"
-                : "今天，有什么新鲜事吗？"
+                ? "编辑文章"
+                : "写一篇新文章。"
           }}
         </h1>
         <span class="muted small-text"
@@ -259,37 +265,26 @@ onBeforeRouteUpdate((to, from) => {
       <div class="editor-content">
         <section class="admin-panel editor-basics">
           <div class="form-row">
-            <label v-if="!isProject"
-              >内容形式<PaperSelect
-                v-model="content.kind"
-                label="内容形式"
-                :disabled="!!content.id"
-                :options="[
-                  { value: 'article', label: '长文章 / 随笔' },
-                  { value: 'moment', label: '短动态' },
-                ]" /></label
-            ><label
-              >内容标记 <span class="optional">可选，不是分类</span
-              ><input
+            <label
+              >内容标记 <textarea
                 v-model="content.label"
-                maxlength="40"
+                rows="3"
+                maxlength="2000"
                 :placeholder="
-                  isProject
-                    ? '例如：桌面工具、开源项目'
-                    : '例如：技术笔记、生活随笔'
+                  isProject ? '桌面工具\n开源项目' : 'Linux\n操作系统'
                 "
-            /></label>
+              />
+            </label>
           </div>
           <label
-            >{{ content.kind === "moment" ? "标题（可选）" : "标题"
-            }}<input
+            >标题<input
               v-model="content.title"
               class="title-input"
               maxlength="200"
               :placeholder="
                 isProject ? '给作品起个名字…' : '给这篇记录起个名字…'
               " /></label
-          ><label v-if="content.kind !== 'moment'"
+          ><label
             >摘要 <span class="optional">留空时从正文提取</span
             ><textarea
               v-model="content.summary"
@@ -304,9 +299,48 @@ onBeforeRouteUpdate((to, from) => {
           </label>
         </section>
         <RepoCardEditor v-if="isProject" v-model="content" />
-        <section class="admin-panel markdown-editor">
+        <section
+          class="admin-panel markdown-editor"
+          :class="{ 'markdown-editor--article': !isProject }"
+        >
           <div class="editor-toolbar">
-            <div>
+            <div
+              v-if="!isProject"
+              class="editor-write-tabs"
+              role="tablist"
+              aria-label="正文编辑模式"
+            >
+              <button
+                id="markdown-write-tab"
+                type="button"
+                role="tab"
+                :aria-selected="!preview"
+                aria-controls="markdown-write-panel"
+                :tabindex="preview ? -1 : 0"
+                @click="preview = false"
+                @keydown="navigateEditorTab"
+              >
+                编写
+              </button>
+              <button
+                id="markdown-preview-tab"
+                type="button"
+                role="tab"
+                :aria-selected="preview"
+                aria-controls="markdown-preview-panel"
+                :tabindex="preview ? 0 : -1"
+                @click="preview = true"
+                @keydown="navigateEditorTab"
+              >
+                预览
+              </button>
+            </div>
+            <fieldset
+              v-show="isProject || !preview"
+              class="editor-format-actions"
+              aria-label="Markdown 格式工具"
+              :disabled="!isProject && preview"
+            >
               <button
                 title="二级标题"
                 aria-label="插入标题"
@@ -350,12 +384,22 @@ onBeforeRouteUpdate((to, from) => {
               >
                 <Icon name="image" :size="18" />
               </button>
-            </div>
-            <span>MARKDOWN</span>
+            </fieldset>
+            <span v-if="isProject">MARKDOWN</span>
           </div>
-          <div class="editor-split">
-            <div class="editor-source">
-              <div class="editor-pane-label">
+          <div
+            id="markdown-editor-content"
+            class="editor-split"
+            :class="{ 'editor-single': !isProject }"
+          >
+            <div
+              v-show="isProject || !preview"
+              class="editor-source"
+              :id="!isProject ? 'markdown-write-panel' : undefined"
+              :role="!isProject ? 'tabpanel' : undefined"
+              :aria-labelledby="!isProject ? 'markdown-write-tab' : undefined"
+            >
+              <div v-if="isProject" class="editor-pane-label">
                 编辑 <span>{{ content.body.length }} 字符</span>
               </div>
               <textarea
@@ -366,12 +410,28 @@ onBeforeRouteUpdate((to, from) => {
                 placeholder="从这里开始写…&#10;&#10;支持 Markdown、代码块、表格和图片。"
               />
             </div>
-            <div class="editor-preview">
-              <div class="editor-pane-label">实时预览 <span>PREVIEW</span></div>
+            <div
+              v-show="isProject || preview"
+              class="editor-preview"
+              :id="!isProject ? 'markdown-preview-panel' : undefined"
+              :role="!isProject ? 'tabpanel' : undefined"
+              :aria-labelledby="!isProject ? 'markdown-preview-tab' : undefined"
+              :tabindex="!isProject ? 0 : undefined"
+            >
+              <div v-if="isProject" class="editor-pane-label">
+                实时预览 <span>PREVIEW</span>
+              </div>
               <div class="preview-body">
                 <MarkdownBody v-if="content.body" :source="content.body" />
-                <p v-else class="preview-placeholder">
-                  你写下的文字，会在这里慢慢成形。
+                <p
+                  v-else-if="!content.images.length"
+                  class="preview-placeholder"
+                >
+                  {{
+                    isProject
+                      ? "你写下的文字，会在这里慢慢成形。"
+                      : "暂无可预览的内容。"
+                  }}
                 </p>
                 <Gallery :images="content.images" />
               </div>
@@ -450,7 +510,7 @@ onBeforeRouteUpdate((to, from) => {
               每日同步更新原始仓库信息，保留自定义的卡片内容、作品介绍及精选设置。
             </p>
           </div>
-          <RouterLink v-else to="/admin/github" class="text-link"
+          <RouterLink v-else to="/admin/projects?view=github" class="text-link"
             >从 GitHub 导入项目 →</RouterLink
           >
         </section>

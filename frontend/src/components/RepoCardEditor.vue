@@ -20,7 +20,7 @@ const fields: {
 }[] = [
   { key: "name", label: "仓库显示名称", type: "text", limit: 255 },
   { key: "description", label: "仓库卡片描述", type: "textarea", limit: 2000 },
-  { key: "language", label: "主要语言", type: "text", limit: 100 },
+  { key: "language", label: "主要语言", type: "textarea", limit: 4200 },
   { key: "updated_at", label: "最近推送日期", type: "date" },
   { key: "url", label: "仓库按钮链接", type: "url", limit: 1000 },
 ];
@@ -86,6 +86,14 @@ function reset(key: keyof RepoOverrides) {
           :id="`repo-card-${field.key}`"
           :value="value(field.key)"
           :maxlength="field.limit"
+          :placeholder="
+            field.key === 'language'
+              ? '每行一项，例如：\nVue\nTypeScript'
+              : undefined
+          "
+          :aria-describedby="
+            field.key === 'language' ? 'repo-language-help' : undefined
+          "
           rows="3"
           @input="update(field.key, $event)"
         />
@@ -97,6 +105,13 @@ function reset(key: keyof RepoOverrides) {
           :maxlength="field.limit"
           @input="update(field.key, $event)"
         />
+        <p
+          v-if="field.key === 'language'"
+          id="repo-language-help"
+          class="muted small-text"
+        >
+          每行一项，最多 20 项。
+        </p>
       </div>
       <label
         >在线体验链接<input

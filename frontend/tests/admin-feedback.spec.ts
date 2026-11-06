@@ -97,7 +97,7 @@ test("在作品列表切换精选，保留完整内容并刷新精选列表", as
     .locator(".content-table tbody tr")
     .filter({ hasText: "作品 1" });
   const original = { ...state.projects[0] };
-  await first.getByRole("button", { name: "精选", exact: true }).click();
+  await first.getByRole("button", { name: "添加精选", exact: true }).click();
   await expect(
     first.getByRole("button", { name: "取消精选", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -162,10 +162,7 @@ test("未保存修改的离开提醒可继续编辑，也可确认放弃", async
   const state = await adminFixture(page);
   await page.goto("/admin/projects/1");
   await page.locator(".title-input").fill("未保存的新标题");
-  await page
-    .locator(".admin-sidebar nav")
-    .getByRole("link", { name: "作品管理", exact: true })
-    .click();
+  await page.getByRole("link", { name: "返回作品管理", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toContainText("还有未保存的修改");
   await dialog.press("Control+s");
@@ -174,10 +171,7 @@ test("未保存修改的离开提醒可继续编辑，也可确认放弃", async
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(/\/admin\/projects\/1$/);
   await expect(page.locator(".title-input")).toHaveValue("未保存的新标题");
-  await page
-    .locator(".admin-sidebar nav")
-    .getByRole("link", { name: "作品管理", exact: true })
-    .click();
+  await page.getByRole("link", { name: "返回作品管理", exact: true }).click();
   await dialog
     .getByRole("button", { name: "放弃修改并离开", exact: true })
     .click();
@@ -212,14 +206,14 @@ test("保存失败及各管理页面读取失败使用同一套主题弹窗", as
   const state = await adminFixture(page);
   state.failSave = true;
   await page.goto("/admin/projects");
-  await page.getByRole("button", { name: "精选", exact: true }).click();
+  await page.getByRole("button", { name: "添加精选", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toContainText("精选设置未保存");
   await expect(dialog).toContainText("保存失败，请稍后重试。");
   await dialog.getByRole("button", { name: "我知道了", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "精选", exact: true }),
+    page.getByRole("button", { name: "添加精选", exact: true }),
   ).toBeEnabled();
   expect(state.projects[0]?.featured).toBe(false);
   state.failLoads = true;
@@ -252,7 +246,7 @@ test("右下角通知闪出闪回，悬停暂停计时，减少动态效果时�
   });
   await page.goto("/admin/projects");
   await page.clock.install();
-  await page.getByRole("button", { name: "精选", exact: true }).click();
+  await page.getByRole("button", { name: "添加精选", exact: true }).click();
   const toast = page.locator(".toast");
   await expect(toast).toBeVisible();
   await expect

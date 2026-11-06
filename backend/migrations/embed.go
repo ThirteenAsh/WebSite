@@ -8,3 +8,6 @@ var InitialSchema string
 
 //go:embed 002_repo_overrides.sql
 var RepoOverridesSchema string
+
+//go:embed 003_multiline_labels.sql
+var MultilineLabelsSchema string

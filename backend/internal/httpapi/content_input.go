@@ -62,17 +62,34 @@ func validateContent(c *model.Content) error {
 	if c.Status != "draft" && c.Status != "published" {
 		return errors.New("发布状态无效")
 	}
+	if c.Kind == "moment" {
+		// 日常只保留配文和有序图片，不再使用文章的标题、标记或封面等字段。
+		c.Title, c.Label, c.Summary, c.CoverURL = "", "", "", ""
+		c.TechStack = nil
+		c.SortOrder = 0
+		c.DemoURL, c.DocsURL, c.ReleaseURL = "", "", ""
+	}
 	if c.Kind != "moment" && c.Title == "" {
 		return errors.New("请填写标题")
 	}
 	if c.Kind == "moment" && strings.TrimSpace(c.Body) == "" && len(c.Images) == 0 {
-		return errors.New("短动态至少需要文字或一张图片")
+		return errors.New("日常至少需要文字或一张图片")
 	}
-	if utf8.RuneCountInString(c.Title) > 200 || utf8.RuneCountInString(c.Label) > 40 || len(c.Summary) > 8000 || len(c.Body) > 512*1024 {
+	labels, valid := normalizeLineTags(c.Label, 20, 40)
+	if !valid {
+		return errors.New("内容标记最多 20 项，每项不超过 40 字")
+	}
+	c.Label = labels
+	if utf8.RuneCountInString(c.Title) > 200 || len(c.Summary) > 8000 || len(c.Body) > 512*1024 {
 		return errors.New("标题、摘要或正文过长（正文上限 512KB）")
 	}
 	if len(c.Images) > 9 || len(c.TechStack) > 20 {
 		return errors.New("最多 9 张配图、20 个技术标签")
+	}
+	for _, image := range c.Images {
+		if strings.TrimSpace(image) == "" {
+			return errors.New("图片地址不能为空")
+		}
 	}
 	for _, v := range append(append([]string{c.CoverURL}, c.Images...), "") {
 		if !validURL(v, true) {
@@ -107,13 +124,20 @@ func validateRepoOverrides(v *model.RepoOverrides) error {
 	for _, field := range []struct {
 		value *string
 		limit int
-	}{{v.Name, 255}, {v.Description, 2000}, {v.Language, 100}} {
+	}{{v.Name, 255}, {v.Description, 2000}} {
 		if field.value != nil {
 			*field.value = strings.TrimSpace(*field.value)
 			if utf8.RuneCountInString(*field.value) > field.limit {
 				return errors.New("仓库名称、描述或主要语言过长")
 			}
 		}
+	}
+	if v.Language != nil {
+		languages, valid := normalizeLineTags(*v.Language, 20, 100)
+		if !valid {
+			return errors.New("主要语言最多 20 项，每项不超过 100 字")
+		}
+		*v.Language = languages
 	}
 	if v.URL != nil {
 		*v.URL = strings.TrimSpace(*v.URL)
@@ -127,4 +151,22 @@ func validateRepoOverrides(v *model.RepoOverrides) error {
 		}
 	}
 	return nil
+}
+
+func normalizeLineTags(value string, maxItems, maxLength int) (string, bool) {
+	value = strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\r", "\n")
+	seen := make(map[string]bool)
+	items := []string{}
+	for _, line := range strings.Split(value, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || seen[line] {
+			continue
+		}
+		if utf8.RuneCountInString(line) > maxLength || len(items) >= maxItems {
+			return "", false
+		}
+		seen[line] = true
+		items = append(items, line)
+	}
+	return strings.Join(items, "\n"), true
 }

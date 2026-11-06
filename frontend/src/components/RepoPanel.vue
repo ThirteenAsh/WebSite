@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { repoDisplay, formatDate, type Content } from "../lib/types";
+import {
+  repoDisplay,
+  formatDate,
+  splitLineTags,
+  type Content,
+} from "../lib/types";
 import Icon from "./Icon.vue";
 const props = defineProps<{ content: Content }>();
 const repo = computed(() => repoDisplay(props.content));
+const languages = computed(() => splitLineTags(repo.value.language));
 </script>
 <template>
   <div class="repo-panel paper-card">
@@ -12,8 +18,12 @@ const repo = computed(() => repoDisplay(props.content));
       <h2>{{ repo.name || content.title }}</h2>
       <p v-if="repo.description">{{ repo.description }}</p>
       <div v-if="repo.language || repo.updated_at" class="repo-meta">
-        <span v-if="repo.language"
-          ><i class="status-dot" />{{ repo.language }}</span
+        <span
+          v-for="(language, i) in languages"
+          :key="language"
+          class="repo-language content-tag"
+          :class="`tag-tone-${i % 5}`"
+          ><i class="status-dot" />{{ language }}</span
         >
         <span v-if="repo.updated_at"
           >最近推送 {{ formatDate(repo.updated_at) }}</span

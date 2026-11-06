@@ -2,12 +2,18 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, ApiError, errorMessage, ensureVisitor, notify } from "../lib/api";
-import { contentPath, formatDate, type Content } from "../lib/types";
+import {
+  contentPath,
+  formatDate,
+  splitLineTags,
+  type Content,
+} from "../lib/types";
 import Icon from "../components/Icon.vue";
 import MarkdownBody from "../components/MarkdownBody.vue";
 import Gallery from "../components/Gallery.vue";
 import LikeButton from "../components/LikeButton.vue";
 import RepoPanel from "../components/RepoPanel.vue";
+import MomentCard from "../components/MomentCard.vue";
 const route = useRoute(),
   router = useRouter(),
   content = ref<Content>(),
@@ -15,6 +21,7 @@ const route = useRoute(),
   error = ref(""),
   missing = ref(false);
 const isProject = computed(() => content.value?.kind === "project");
+const labels = computed(() => splitLineTags(content.value?.label));
 let request = 0;
 async function load() {
   const id = ++request;
@@ -31,7 +38,7 @@ async function load() {
       return;
     }
     content.value = c;
-    document.title = `${c.title || "日常片刻"} · ThirteenAsh`;
+    document.title = `${c.kind === "moment" ? "日常" : c.title} · ThirteenAsh`;
     try {
       const stat = await api<{ view_count: number }>(`/contents/${c.id}/view`, {
         method: "POST",
@@ -70,6 +77,15 @@ async function share() {
     <RouterLink to="/" class="btn secondary">回到首页</RouterLink
     ><button v-if="!missing" class="btn secondary" @click="load">重试</button>
   </div>
+  <section v-else-if="content?.kind === 'moment'" class="moment-detail">
+    <RouterLink to="/moments" class="text-link"
+      ><Icon name="back" :size="17" />全部日常</RouterLink
+    >
+    <MomentCard :content="content" :count-view="false" />
+    <button class="text-link moment-share" @click="share">
+      <Icon name="link" :size="16" />复制链接
+    </button>
+  </section>
   <article
     v-else-if="content"
     class="detail-page"
@@ -84,21 +100,19 @@ async function share() {
     >
     <header class="detail-header">
       <p class="eyebrow">
-        {{
-          isProject
-            ? "PROJECT NOTES"
-            : content.kind === "moment"
-              ? "A MOMENT IN LIFE"
-              : "WORDS & THOUGHTS"
-        }}
+        {{ isProject ? "PROJECT NOTES" : "WORDS & THOUGHTS" }}
       </p>
-      <h1>{{ content.title || "日常片刻" }}</h1>
+      <h1>{{ content.title }}</h1>
       <div class="detail-meta">
-        <span class="badge">{{
-          content.label ||
-          (isProject ? "独立项目" : content.kind === "moment" ? "日常" : "文章")
-        }}</span
-        ><time>{{ formatDate(content.published_at) }}</time
+        <span
+          v-for="(label, i) in labels.length
+            ? labels
+            : [isProject ? '独立项目' : '文章']"
+          :key="label"
+          class="badge content-tag"
+          :class="`tag-tone-${i % 5}`"
+          >{{ label }}</span
+        > ThirteenAsh <time>{{ formatDate(content.published_at) }}</time
         ><span
           ><Icon name="eye" :size="16" />{{ content.view_count }} 次浏览</span
         >
@@ -135,3 +149,19 @@ async function share() {
     </div>
   </article>
 </template>
+<style scoped>
+.moment-detail {
+  max-width: 700px;
+  margin: 25px auto 70px;
+}
+.moment-share {
+  margin: 18px 0 0 57px;
+  color: var(--muted);
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  .moment-share {
+    margin-left: 47px;
+  }
+}
+</style>

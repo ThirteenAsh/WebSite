@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api, session, errorMessage } from "../../lib/api";
 import { showError } from "../../lib/dialogs";
+import { contentDescription } from "../../lib/markdown";
 import {
   formatDate,
   kindName,
@@ -15,6 +16,7 @@ import Icon from "../../components/Icon.vue";
 const data = ref<Dashboard>(),
   recentProjects = ref<Content[]>([]),
   recentWritings = ref<Content[]>([]),
+  recentMoments = ref<Content[]>([]),
   error = ref(""),
   loading = ref(true);
 const sync = computed<SyncResult | null>(() => {
@@ -54,14 +56,16 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const [d, p, w] = await Promise.all([
+    const [d, p, w, m] = await Promise.all([
       api<Dashboard>("/admin/dashboard"),
       api<Page<Content>>("/admin/contents?kind=project&limit=4"),
-      api<Page<Content>>("/admin/contents?kind=writing&limit=4"),
+      api<Page<Content>>("/admin/contents?kind=article&limit=4"),
+      api<Page<Content>>("/admin/contents?kind=moment&limit=4"),
     ]);
     data.value = d;
     recentProjects.value = p.items;
     recentWritings.value = w.items;
+    recentMoments.value = m.items;
   } catch (e) {
     error.value = errorMessage(e);
     void showError(error.value, "工作台读取失败");
@@ -78,9 +82,13 @@ onMounted(load);
       <h1>你好，{{ session.username }}。</h1>
       <p>每个想法，都值得留下一页。</p>
     </div>
-    <RouterLink to="/admin/contents/new" class="btn primary"
-      ><Icon name="edit" :size="18" />开始新记录</RouterLink
-    >
+    <div class="editor-save-actions">
+      <RouterLink to="/admin/contents/new" class="btn secondary"
+        ><Icon name="edit" :size="18" />写文章</RouterLink
+      ><RouterLink to="/admin/moments/new" class="btn primary"
+        ><Icon name="plus" :size="18" />记录日常</RouterLink
+      >
+    </div>
   </div>
   <div v-if="error" class="error-panel" role="alert">
     {{ error }} <button class="text-link" @click="load">重试</button>
@@ -101,10 +109,11 @@ onMounted(load);
           v-for="group in [
             { title: '作品', items: recentProjects, path: '/admin/projects' },
             {
-              title: '文章与日常',
+              title: '文章',
               items: recentWritings,
               path: '/admin/contents',
             },
+            { title: '日常', items: recentMoments, path: '/admin/moments' },
           ]"
           :key="group.path"
           class="admin-panel"
@@ -119,7 +128,9 @@ onMounted(load);
             {{
               group.title === "作品"
                 ? "添加或导入第一件作品吧。"
-                : "从第一篇记录开始吧。"
+                : group.title === "日常"
+                  ? "记下第一个日常片刻吧。"
+                  : "从第一篇文章开始吧。"
             }}
           </div>
           <RouterLink
@@ -131,7 +142,7 @@ onMounted(load);
               ><Icon :name="c.kind === 'project' ? 'code' : 'book'"
             /></span>
             <div>
-              <strong>{{ c.title || "无标题动态" }}</strong
+              <strong>{{ contentDescription(c) }}</strong
               ><small
                 >{{ kindName(c.kind) }} · {{ formatDate(c.updated_at) }}</small
               >
@@ -156,7 +167,7 @@ onMounted(load);
             {{ sync.errors.length }} 个</small
           >
         </div>
-        <RouterLink to="/admin/github" class="btn secondary"
+        <RouterLink to="/admin/projects?view=github" class="btn secondary"
           >管理 GitHub 项目<Icon name="right" :size="16"
         /></RouterLink>
       </section></div

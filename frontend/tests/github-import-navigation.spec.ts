@@ -47,6 +47,21 @@ test("已导入仓库卡片打开对应作品编辑页，未导入仓库仍可�
       importRequests.push(route.request().postDataJSON());
       imported = true;
       await route.fulfill({ json: { imported: 1, skipped: 0 } });
+    } else if (path === "/api/admin/github/sync") {
+      await route.fulfill({
+        json: { updated: 1, errors: [], at: "2026-11-06T01:00:00Z" },
+      });
+    } else if (path === "/api/admin/contents") {
+      const featured =
+        new URL(route.request().url()).searchParams.get("featured") === "1";
+      await route.fulfill({
+        json: {
+          items: featured ? [] : projects,
+          total: featured ? 0 : projects.length,
+          page: 1,
+          pages: featured ? 0 : 1,
+        },
+      });
     } else if (path.startsWith("/api/admin/contents/")) {
       const content = projects.find((project) =>
         path.endsWith(`/${project.id}`),
@@ -58,6 +73,47 @@ test("已导入仓库卡片打开对应作品编辑页，未导入仓库仍可�
   });
 
   await page.goto("/admin/github");
+  await expect(page).toHaveURL(/\/admin\/projects\?view=github$/);
+  await expect(page.getByRole("heading", { name: "作品管理." })).toBeVisible();
+  const views = page.getByRole("navigation", {
+    name: "作品管理视图",
+    exact: true,
+  });
+  await expect(views.getByRole("link")).toHaveText([
+    "GitHub 导入与同步",
+    "全部作品",
+    "首页精选",
+  ]);
+  await expect(views.getByRole("link").first()).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(page.locator(".admin-sidebar nav a.selected")).toHaveText(
+    "作品管理",
+  );
+  await expect(
+    page
+      .locator(".admin-sidebar nav")
+      .getByRole("link", { name: "GitHub 导入与同步" }),
+  ).toHaveCount(0);
+  await views.getByRole("link", { name: "全部作品", exact: true }).click();
+  await expect(page.locator(".table-title")).toHaveText(
+    projects.map((c) => c.title),
+  );
+  await expect(page.locator(".github-panel")).toHaveCount(0);
+  await views.getByRole("link", { name: "首页精选", exact: true }).click();
+  await expect(page.locator(".empty-panel")).toBeVisible();
+  await views
+    .getByRole("link", { name: "GitHub 导入与同步", exact: true })
+    .click();
+  await page.getByRole("button", { name: "同步已选项目", exact: true }).click();
+  await expect(page.locator(".sync-result")).toContainText(
+    "本次同步更新 1 个项目",
+  );
+  await page.screenshot({
+    path: "../.local/admin-projects-github.png",
+    animations: "disabled",
+  });
   const existing = page.getByRole("link", {
     name: "编辑作品：existing-repo",
     exact: true,
@@ -77,7 +133,7 @@ test("已导入仓库卡片打开对应作品编辑页，未导入仓库仍可�
   );
   await newCard.click();
   await expect(checkbox).not.toBeChecked();
-  await expect(page).toHaveURL(/\/admin\/github$/);
+  await expect(page).toHaveURL(/\/admin\/projects\?view=github$/);
 
   await existing.click();
   await expect(page).toHaveURL(/\/admin\/projects\/42$/);

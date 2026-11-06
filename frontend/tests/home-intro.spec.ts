@@ -71,8 +71,6 @@ for (const viewport of [
     await expect(page.locator(".home-intro")).toHaveClass(/is-released/);
     await expect(page.locator(".intro-scroll")).toHaveCSS("opacity", "0");
     await expect(page.locator(".intro-scroll")).toBeHidden();
-    await expect(page.locator("#featured-title")).toBeInViewport();
-    await expect(page.locator(".home-project-grid")).toBeInViewport();
     await expect
       .poll(async () =>
         Math.abs(
@@ -81,6 +79,17 @@ for (const viewport of [
         ),
       )
       .toBeLessThan(2);
+
+    await page.locator(".about-section").scrollIntoViewIfNeeded();
+    await expect(page.locator(".about-avatar img")).toBeInViewport();
+    await expect(page.locator("#about-title")).toBeInViewport();
+    await page.locator("#featured-title").scrollIntoViewIfNeeded();
+    await expect(page.locator("#featured-title")).toBeInViewport();
+    await page
+      .locator(".home-project-grid .project-card")
+      .first()
+      .scrollIntoViewIfNeeded();
+    await expect(page.locator(".home-project-grid")).toBeInViewport();
 
     await page
       .locator(".home-project-grid .project-card")
@@ -145,6 +154,9 @@ test("减少动态效果时直接展示介绍，没有空白滚动区", async ({
   expect(
     await page.locator(".home-intro").evaluate((scene) => scene.clientHeight),
   ).toBeLessThan(800);
+  await page.locator(".about-section").scrollIntoViewIfNeeded();
+  await expect(page.locator("#about-title")).toBeInViewport();
+  await page.locator("#featured-title").scrollIntoViewIfNeeded();
   await expect(page.locator("#featured-title")).toBeInViewport();
 });
 

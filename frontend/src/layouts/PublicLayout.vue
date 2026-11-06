@@ -14,6 +14,18 @@ const route = useRoute(),
   menu = ref(false),
   dark = ref(false);
 const navigation = ref<HTMLElement>();
+const mobileNavigation = ref<HTMLElement>();
+const menuButton = ref<HTMLButtonElement>();
+function closeMenuOutside(event: PointerEvent) {
+  if (!menu.value) return;
+  const path = event.composedPath();
+  if (
+    (mobileNavigation.value && path.includes(mobileNavigation.value)) ||
+    (menuButton.value && path.includes(menuButton.value))
+  )
+    return;
+  menu.value = false;
+}
 const indicator = ref({
   transform: "translateX(0px)",
   width: "12px",
@@ -24,6 +36,7 @@ const activeSection = computed(() => {
   if (route.path === "/") return "/";
   if (/^\/projects(?:\/|$)/.test(route.path)) return "/projects";
   if (/^\/articles(?:\/|$)/.test(route.path)) return "/articles";
+  if (/^\/moments(?:\/|$)/.test(route.path)) return "/moments";
   return "";
 });
 let navObserver: ResizeObserver | undefined;
@@ -72,6 +85,9 @@ async function load() {
 }
 applyTheme();
 onMounted(load);
+onMounted(() =>
+  document.addEventListener("pointerdown", closeMenuOutside, true),
+);
 onMounted(async () => {
   await nextTick();
   alignIndicator();
@@ -83,6 +99,7 @@ onMounted(async () => {
   document.fonts.ready.then(alignIndicator);
 });
 onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", closeMenuOutside, true);
   navObserver?.disconnect();
   cancelAnimationFrame(navFrame);
 });
@@ -123,13 +140,19 @@ watch(
           to="/projects"
           data-nav="/projects"
           :class="{ active: activeSection === '/projects' }"
-          ><span class="nav-label">作品</span></RouterLink
+          ><span class="nav-label">项目</span></RouterLink
         >
         <RouterLink
           to="/articles"
           data-nav="/articles"
           :class="{ active: activeSection === '/articles' }"
-          ><span class="nav-label">文章与日常</span></RouterLink
+          ><span class="nav-label">文章</span></RouterLink
+        >
+        <RouterLink
+          to="/moments"
+          data-nav="/moments"
+          :class="{ active: activeSection === '/moments' }"
+          ><span class="nav-label">日常</span></RouterLink
         >
         <span
           class="nav-indicator"
@@ -148,19 +171,30 @@ watch(
         >
           <Icon :name="dark ? 'sun' : 'moon'" /></button
         ><button
+          ref="menuButton"
           class="icon-btn mobile-menu"
           :aria-expanded="menu"
-          aria-label="展开导航"
+          :aria-label="menu ? '收起导航' : '展开导航'"
+          aria-controls="mobile-navigation"
           @click="menu = !menu"
         >
           <Icon :name="menu ? 'close' : 'menu'" />
         </button>
       </div>
-      <nav v-if="menu" class="mobile-nav" aria-label="手机导航">
-        <RouterLink to="/">首页</RouterLink
-        ><RouterLink to="/projects">作品集</RouterLink
-        ><RouterLink to="/articles">文章与日常</RouterLink>
-      </nav>
+      <Transition name="mobile-nav">
+        <nav
+          v-if="menu"
+          ref="mobileNavigation"
+          id="mobile-navigation"
+          class="mobile-nav"
+          aria-label="手机导航"
+        >
+          <RouterLink to="/">首页</RouterLink
+          ><RouterLink to="/projects">作品集</RouterLink
+          ><RouterLink to="/articles">文章</RouterLink
+          ><RouterLink to="/moments">日常</RouterLink>
+        </nav>
+      </Transition>
     </header>
     <main id="main-content" class="wrap public-main">
       <div
@@ -182,9 +216,7 @@ watch(
     <footer class="site-footer wrap">
       <div>
         <strong>{{ site.settings?.name || "ThirteenAsh" }}</strong
-        ><span
-          >© {{ new Date().getFullYear() }} · 总想留下些什么。</span
-        >
+        ><span>© {{ new Date().getFullYear() }} · bytecraft.xin</span>
       </div>
       <div class="footer-links">
         <a
@@ -195,6 +227,25 @@ watch(
           >GitHub<Icon name="arrow" :size="14" /></a
         ><a href="#main-content">回到顶部 ↑</a>
       </div>
+      <nav class="footer-registration" aria-label="网站备案信息">
+        <a
+          href="https://beian.miit.gov.cn/"
+          target="_blank"
+          rel="noopener noreferrer"
+          >陕ICP备2025084108号-1</a
+        >
+        <a
+          href="https://beian.mps.gov.cn/#/query/webSearch?code=61012502000363"
+          target="_blank"
+          rel="noopener noreferrer"
+          ><img
+            src="/beian-police.png"
+            alt=""
+            width="15"
+            height="16"
+          />陕公网安备 61012502000363号</a
+        >
+      </nav>
     </footer>
   </div>
 </template>

@@ -64,7 +64,16 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	if count == 0 {
-		return executeSchema(db, migrations.RepoOverridesSchema)
+		if err := executeSchema(db, migrations.RepoOverridesSchema); err != nil {
+			return err
+		}
+	}
+	var labelLength int64
+	if err := db.QueryRow(`SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='contents' AND column_name='label'`).Scan(&labelLength); err != nil {
+		return err
+	}
+	if labelLength < 1000 {
+		return executeSchema(db, migrations.MultilineLabelsSchema)
 	}
 	return nil
 }

@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import type { SiteSettings, Upload } from "./types";
+import type { SiteCounts, SiteSettings, Upload } from "./types";
 
 export class ApiError extends Error {
   constructor(
@@ -118,7 +118,7 @@ export async function upload(file: File): Promise<Upload> {
 }
 export const site = reactive({
   settings: null as SiteSettings | null,
-  counts: { projects: 0, writings: 0 },
+  counts: { projects: 0, writings: 0 } as SiteCounts,
   loading: false,
   error: "",
   async load() {
@@ -126,7 +126,7 @@ export const site = reactive({
     try {
       const data = await api<{
         settings: SiteSettings;
-        counts: { projects: number; writings: number };
+        counts: SiteCounts;
       }>("/site");
       this.settings = data.settings;
       this.counts = data.counts;

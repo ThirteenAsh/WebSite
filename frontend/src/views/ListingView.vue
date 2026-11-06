@@ -31,7 +31,7 @@ const archiveCount = computed(() => {
   if (!site.settings || site.error) return null;
   return props.mode === "projects"
     ? site.counts.projects
-    : site.counts.writings;
+    : (site.counts.articles ?? null);
 });
 let request = 0;
 async function load() {
@@ -49,7 +49,7 @@ async function load() {
     limit: "12",
   });
   if (props.mode === "projects") params.set("kind", "project");
-  if (props.mode === "articles") params.set("kind", "writing");
+  if (props.mode === "articles") params.set("kind", "article");
   if (q.value) params.set("q", q.value);
   try {
     const data = await api<Page<Content>>(`/contents?${params}`);
@@ -84,7 +84,7 @@ function page(n: number) {
           mode === "projects"
             ? "THE PROJECT ARCHIVE"
             : mode === "articles"
-              ? "NOTES & EVERYDAY LIFE"
+              ? "WORDS & THOUGHTS"
               : "SEARCH THE SPACE"
         }}
       </p>
@@ -92,7 +92,7 @@ function page(n: number) {
       <p class="listing-description">
         {{
           mode === "projects"
-            ? "从一个念头，到一次尝试，再到一个可以分享的作品。"
+            ? "可以给个小小的 Star 吗(๑•̀ω•́๑)✧"
             : mode === "articles"
               ? "仅供参考"
               : "在作品、技术笔记和日常记录中搜索。"
