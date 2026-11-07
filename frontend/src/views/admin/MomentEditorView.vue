@@ -13,6 +13,7 @@ import {
   blankContent,
   contentPath,
   type Content,
+  type Upload,
 } from "../../lib/types";
 import Gallery from "../../components/Gallery.vue";
 import Icon from "../../components/Icon.vue";
@@ -41,9 +42,14 @@ const dirty = computed(
     !loading.value && !!baseline.value && serialized.value !== baseline.value,
 );
 const locked = computed(() => busy.value || uploading.value);
+const pendingUploads = new Set<number>();
+function rememberUpload(image: Upload) {
+  if (!content.value.id) pendingUploads.add(image.id);
+}
 let request = 0;
 async function load() {
   const id = ++request;
+  pendingUploads.clear();
   loading.value = true;
   error.value = "";
   preview.value = false;
@@ -79,7 +85,13 @@ async function save(status: Content["status"]) {
   busy.value = true;
   try {
     const isNew = !content.value.id;
-    const data = { ...payload.value, status };
+    const data = {
+      ...payload.value,
+      status,
+      ...(isNew && pendingUploads.size
+        ? { upload_ids: [...pendingUploads] }
+        : {}),
+    };
     const saved = await api<{ id: number }>(
       isNew ? "/admin/contents" : `/admin/contents/${content.value.id}`,
       { method: isNew ? "POST" : "PUT", body: JSON.stringify(data) },
@@ -219,8 +231,10 @@ onBeforeUnmount(() => {
           />
           <MomentImagesEditor
             v-model="content.images"
+            :content-id="content.id"
             :disabled="busy"
             @uploading="uploading = $event"
+            @uploaded="rememberUpload"
           />
         </template>
         <div v-else class="moment-composer-preview">

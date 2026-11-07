@@ -1,46 +1,50 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { api, upload, notify, errorMessage } from "../../lib/api";
+import { computed, ref } from "vue";
+import { api, notify, errorMessage } from "../../lib/api";
 import { confirmAction, showError } from "../../lib/dialogs";
-import type { Upload, Page } from "../../lib/types";
+import { formatDate, type Upload } from "../../lib/types";
 import Icon from "../../components/Icon.vue";
-import Pagination from "../../components/Pagination.vue";
-const result = ref<Page<Upload>>({ items: [], total: 0, page: 1, pages: 0 }),
-  loading = ref(false),
-  busy = ref(false),
-  error = ref("");
-async function load(page = 1) {
-  loading.value = true;
-  error.value = "";
-  try {
-    result.value = await api<Page<Upload>>(`/admin/uploads?page=${page}`);
-  } catch (e) {
-    error.value = errorMessage(e);
-    void showError(error.value, "图片库读取失败");
-  } finally {
-    loading.value = false;
-  }
+import MediaGroupSelect from "../../components/MediaGroupSelect.vue";
+import MediaLibrary from "../../components/MediaLibrary.vue";
+import MediaPicker from "../../components/MediaPicker.vue";
+
+const scope = ref("");
+const library = ref<InstanceType<typeof MediaLibrary>>();
+const picker = ref<InstanceType<typeof MediaPicker>>();
+const groupDialog = ref<HTMLDialogElement>();
+const editing = ref<Upload>();
+const newGroup = ref("0");
+const moving = ref(false);
+const groups = computed(() => library.value?.groups || []);
+
+function groupName(id: number) {
+  const group = groups.value.find((item) => item.id === id);
+  if (!group) return id ? "内容 #" + id : "未归类";
+  return group.title || formatDate(group.created_at) + " 日常 #" + group.id;
 }
-async function add(event: Event) {
-  const input = event.target as HTMLInputElement,
-    files = [...(input.files || [])];
-  busy.value = true;
-  let count = 0;
+function editGroup(image: Upload) {
+  editing.value = image;
+  newGroup.value = String(image.content_id || 0);
+  groupDialog.value?.showModal();
+}
+function closeGroup() {
+  if (!moving.value) groupDialog.value?.close();
+}
+async function move() {
+  if (!editing.value || moving.value) return;
+  moving.value = true;
   try {
-    for (const file of files) {
-      await upload(file);
-      count++;
-    }
-    if (count) notify(`已上传 ${count} 张图片`);
+    await api(`/admin/uploads/${editing.value.id}/group`, {
+      method: "PUT",
+      body: JSON.stringify({ content_id: Number(newGroup.value) || null }),
+    });
+    groupDialog.value?.close();
+    notify("图片已归类");
+    await library.value?.load();
   } catch (e) {
-    void showError(
-      `${count ? `已上传 ${count} 张。` : ""}${errorMessage(e)}`,
-      "图片上传未完成",
-    );
+    void showError(errorMessage(e), "图片归类未完成");
   } finally {
-    busy.value = false;
-    input.value = "";
-    await load();
+    moving.value = false;
   }
 }
 async function remove(image: Upload) {
@@ -58,10 +62,11 @@ async function remove(image: Upload) {
   try {
     await api(`/admin/uploads/${image.id}`, { method: "DELETE" });
     notify("图片已删除");
-    await load(
-      result.value.items.length === 1
-        ? Math.max(1, result.value.page - 1)
-        : result.value.page,
+    const result = library.value?.result;
+    await library.value?.load(
+      result && result.items.length === 1
+        ? Math.max(1, result.page - 1)
+        : result?.page,
     );
   } catch (e) {
     void showError(errorMessage(e));
@@ -72,65 +77,84 @@ async function copy(url: string) {
     await navigator.clipboard.writeText(url);
     notify("图片地址已复制");
   } catch {
-    void showError("复制失败，请在图片上右键复制地址");
+    void showError("复制失败，请打开原图后复制地址");
   }
 }
-onMounted(() => load());
 </script>
+
 <template>
   <div class="admin-page-heading">
     <div>
       <p class="eyebrow">PICTURES WORTH KEEPING</p>
       <h1>图片库<span class="heading-dot">.</span></h1>
-      <p>上传的图片保存在服务器本地，可用于封面、正文和动态配图。</p>
+      <p>按文章、作品和日常查看图片，或按文件名查找。</p>
     </div>
-    <label class="btn primary upload-label" :class="{ disabled: busy }"
-      ><Icon name="plus" :size="18" />{{ busy ? "正在上传…" : "上传图片"
-      }}<input
-        type="file"
-        accept="image/jpeg,image/png,image/gif"
-        multiple
-        :disabled="busy"
-        @change="add"
-    /></label>
+    <button type="button" class="btn primary" @click="picker?.open()">
+      <Icon name="plus" :size="18" />批量上传
+    </button>
   </div>
-  <div class="info-strip">
-    支持 JPG、PNG、GIF，单张最多 8MB、1600 万像素。GIF
-    仅保留首帧。正在使用的图片无法删除。
-  </div>
-  <div v-if="loading" class="loading-panel">正在整理图片…</div>
-  <div v-else-if="error" class="error-panel" role="alert">
-    {{ error }} <button class="text-link" @click="load()">重试</button>
-  </div>
-  <div v-else-if="!result.items.length" class="empty-panel admin-panel">
-    <Icon name="image" :size="34" />
-    <h3>第一张图片，会是什么？</h3>
-    <p>上传后，可以在编辑内容时直接选用。</p>
-  </div>
-  <div v-else class="media-grid">
-    <article
-      v-for="image in result.items"
-      :key="image.id"
-      class="media-card admin-panel"
-    >
-      <a :href="image.url" target="_blank" rel="noopener noreferrer"
-        ><img :src="image.url" :alt="image.original_name" loading="lazy"
-      /></a>
-      <div>
-        <strong :title="image.original_name">{{ image.original_name }}</strong
-        ><span
-          >{{ image.width }} × {{ image.height }} ·
-          {{ Math.ceil(image.size_bytes / 1024) }} KB</span
+  <MediaLibrary ref="library" v-model="scope">
+    <template #actions="{ image }">
+      <span
+        v-if="image.content_id"
+        class="media-card-group"
+        :title="groupName(image.content_id)"
+        >{{ groupName(image.content_id) }}</span
+      >
+      <div class="media-actions">
+        <button type="button" class="text-link" @click="editGroup(image)">
+          <Icon name="edit" :size="15" />归类
+        </button>
+        <button type="button" class="text-link" @click="copy(image.url)">
+          <Icon name="link" :size="15" />复制地址
+        </button>
+        <button
+          type="button"
+          class="text-link danger-text"
+          @click="remove(image)"
         >
-        <div class="media-actions">
-          <button class="text-link" @click="copy(image.url)">
-            <Icon name="link" :size="15" />复制地址</button
-          ><button class="text-link danger-text" @click="remove(image)">
-            <Icon name="trash" :size="15" />删除
-          </button>
-        </div>
+          <Icon name="trash" :size="15" />删除
+        </button>
       </div>
-    </article>
-  </div>
-  <Pagination :page="result.page" :pages="result.pages" @change="load" />
+    </template>
+  </MediaLibrary>
+  <MediaPicker
+    ref="picker"
+    upload-only
+    :content-id="Number(scope)"
+    :upload-groups="groups"
+    @finished="library?.load()"
+  />
+  <dialog
+    ref="groupDialog"
+    class="media-group-dialog"
+    aria-labelledby="media-group-heading"
+    @cancel.prevent="closeGroup"
+  >
+    <form @submit.prevent="move">
+      <div class="panel-heading">
+        <div>
+          <h2 id="media-group-heading">图片归类</h2>
+          <p class="muted small-text">{{ editing?.original_name }}</p>
+        </div>
+        <button
+          type="button"
+          class="icon-btn"
+          aria-label="关闭图片归类"
+          :disabled="moving"
+          @click="closeGroup"
+        >
+          <Icon name="close" />
+        </button>
+      </div>
+      <fieldset :disabled="moving">
+        <MediaGroupSelect
+          v-model="newGroup"
+          :groups="groups"
+          label="归入分类"
+        />
+        <button type="submit" class="btn primary">保存分类</button>
+      </fieldset>
+    </form>
+  </dialog>
 </template>

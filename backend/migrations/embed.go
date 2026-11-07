@@ -11,3 +11,6 @@ var RepoOverridesSchema string
 
 //go:embed 003_multiline_labels.sql
 var MultilineLabelsSchema string
+
+//go:embed 004_upload_groups.sql
+var UploadGroupsSchema string

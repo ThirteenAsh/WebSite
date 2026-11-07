@@ -73,7 +73,15 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	if labelLength < 1000 {
-		return executeSchema(db, migrations.MultilineLabelsSchema)
+		if err := executeSchema(db, migrations.MultilineLabelsSchema); err != nil {
+			return err
+		}
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='uploads' AND column_name='content_id'`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		return executeSchema(db, migrations.UploadGroupsSchema)
 	}
 	return nil
 }

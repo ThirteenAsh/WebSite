@@ -108,13 +108,65 @@ export function ensureVisitor() {
     throw e;
   }));
 }
-export async function upload(file: File): Promise<Upload> {
-  if (!["image/jpeg", "image/png", "image/gif"].includes(file.type))
-    throw new Error("请选择 JPG、PNG 或 GIF 图片");
-  if (file.size > 8 * 1024 * 1024) throw new Error("单张图片不能超过 8MB");
+export function imageFileError(file: File) {
+  if (
+    !["image/jpeg", "image/png", "image/gif"].includes(file.type) &&
+    (file.type || !/\.(jpe?g|png|gif)$/i.test(file.name))
+  )
+    return "请选择 JPG、PNG 或 GIF 图片";
+  if (file.size > 8 * 1024 * 1024) return "单张图片不能超过 8MB";
+}
+export async function upload(
+  file: File,
+  options: {
+    contentId?: number;
+    key: string;
+    progress: (percent: number) => void;
+    signal: AbortSignal;
+  },
+): Promise<Upload> {
+  const validationError = imageFileError(file);
+  if (validationError) throw new Error(validationError);
+  options.signal.throwIfAborted();
   const body = new FormData();
   body.append("file", file);
-  return api<Upload>("/admin/uploads", { method: "POST", body });
+  if (options.contentId) body.append("content_id", String(options.contentId));
+  body.append("upload_key", options.key);
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    const abort = () => request.abort();
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable)
+        options.progress(Math.floor((100 * event.loaded) / event.total));
+    };
+    request.upload.onload = () => options.progress(100);
+    request.open("POST", "/api/admin/uploads");
+    request.responseType = "json";
+    if (session.csrf) request.setRequestHeader("X-CSRF-Token", session.csrf);
+    request.onload = () => {
+      if (request.status === 401) session.clear();
+      const data = request.response;
+      if (
+        request.status >= 200 &&
+        request.status < 300 &&
+        data?.id &&
+        data.url
+      ) {
+        resolve(data as Upload);
+      } else {
+        reject(
+          new ApiError(request.status, data?.error || "图片上传失败，请重试"),
+        );
+      }
+    };
+    request.onerror = () =>
+      reject(new ApiError(0, "连接失败，请检查网络后重试"));
+    request.onabort = () => reject(options.signal.reason);
+    request.onloadend = () =>
+      options.signal.removeEventListener("abort", abort);
+    options.signal.addEventListener("abort", abort, { once: true });
+    request.send(body);
+  });
 }
 export const site = reactive({
   settings: null as SiteSettings | null,

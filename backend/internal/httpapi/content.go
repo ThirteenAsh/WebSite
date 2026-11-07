@@ -172,8 +172,34 @@ func (a *Server) createContent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		c.PublishedAt = nil
 	}
-	id, e := repository.InsertContent(r.Context(), a.db, c)
+	if len(input.UploadIDs) > 1000 {
+		fail(w, 400, "首次保存最多归类 1000 张图片")
+		return
+	}
+	ctx := r.Context()
+	tx, e := a.db.BeginTx(ctx, nil)
 	if e != nil {
+		serverError(w, e)
+		return
+	}
+	defer tx.Rollback()
+	id, e := repository.InsertContent(ctx, tx, c)
+	if e != nil {
+		serverError(w, e)
+		return
+	}
+	if len(input.UploadIDs) > 0 {
+		args := []any{id}
+		for _, uploadID := range input.UploadIDs {
+			args = append(args, uploadID)
+		}
+		params := strings.Repeat("?,", len(input.UploadIDs)-1) + "?"
+		if _, e = tx.ExecContext(ctx, "UPDATE uploads SET content_id=? WHERE content_id IS NULL AND id IN ("+params+")", args...); e != nil {
+			serverError(w, e)
+			return
+		}
+	}
+	if e = tx.Commit(); e != nil {
 		serverError(w, e)
 		return
 	}

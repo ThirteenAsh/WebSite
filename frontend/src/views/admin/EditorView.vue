@@ -21,6 +21,7 @@ import {
   adminContentPath,
   splitLineTags,
   type Content,
+  type Upload,
 } from "../../lib/types";
 import { markdownExcerpt } from "../../lib/markdown";
 import Icon from "../../components/Icon.vue";
@@ -42,6 +43,7 @@ const preview = ref(false);
 const textarea = ref<HTMLTextAreaElement>(),
   picker = ref<InstanceType<typeof MediaPicker>>(),
   imageTarget = ref<"body" | "gallery">("body");
+const pendingUploads = new Set<number>();
 const serialized = computed(() =>
   JSON.stringify({ content: content.value, stack: stack.value }),
 );
@@ -68,6 +70,7 @@ function navigateEditorTab(event: KeyboardEvent) {
 }
 async function load() {
   loading.value = true;
+  pendingUploads.clear();
   error.value = "";
   preview.value = false;
   try {
@@ -114,9 +117,13 @@ async function save(status: Content["status"]) {
   busy.value = true;
   try {
     const isNew = !c.id;
+    const data =
+      isNew && pendingUploads.size
+        ? { ...c, upload_ids: [...pendingUploads] }
+        : c;
     const saved = await api<{ id: number }>(
       isNew ? "/admin/contents" : `/admin/contents/${c.id}`,
-      { method: isNew ? "POST" : "PUT", body: JSON.stringify(c) },
+      { method: isNew ? "POST" : "PUT", body: JSON.stringify(data) },
     );
     content.value = { ...c, id: saved.id };
     baseline.value = serialized.value;
@@ -169,6 +176,9 @@ function pick(target: "body" | "gallery") {
   imageTarget.value = target;
   imagePosition = target === "body" ? bodyPosition() : undefined;
   picker.value?.open();
+}
+function rememberUpload(image: Upload) {
+  if (!content.value.id) pendingUploads.add(image.id);
 }
 function selectedImage(url: string) {
   if (imageTarget.value === "body") {
@@ -404,6 +414,7 @@ onBeforeRouteUpdate((to, from) => {
               ><button
                 title="插入图片"
                 aria-label="插入图片"
+                :disabled="busy"
                 @click="pick('body')"
               >
                 <Icon name="image" :size="18" />
@@ -479,7 +490,13 @@ onBeforeRouteUpdate((to, from) => {
                 : "草稿仅在后台可见，发布后才会出现在个人空间。"
             }}
           </p>
-          <ImageField v-model="content.cover_url" label="封面" />
+          <ImageField
+            v-model="content.cover_url"
+            label="封面"
+            :content-id="content.id"
+            :disabled="busy"
+            @uploaded="rememberUpload"
+          />
         </section>
         <section class="admin-panel">
           <div class="panel-heading">
@@ -501,7 +518,7 @@ onBeforeRouteUpdate((to, from) => {
           </div>
           <button
             class="btn secondary full-width"
-            :disabled="content.images.length >= 9"
+            :disabled="busy || content.images.length >= 9"
             @click="pick('gallery')"
           >
             <Icon name="plus" :size="16" />添加配图
@@ -541,6 +558,10 @@ onBeforeRouteUpdate((to, from) => {
         </section>
       </aside>
     </div>
-    <MediaPicker ref="picker" @select="selectedImage"
+    <MediaPicker
+      ref="picker"
+      :content-id="content.id"
+      @select="selectedImage"
+      @uploaded="rememberUpload"
   /></template>
 </template>

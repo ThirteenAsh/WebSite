@@ -71,6 +71,13 @@ export interface Upload {
   width: number;
   height: number;
   created_at: string;
+  content_id: number | null;
+}
+export interface UploadGroup {
+  id: number;
+  kind: Content["kind"];
+  title: string;
+  created_at: string;
 }
 export interface Repo {
   id: number;

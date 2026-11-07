@@ -85,6 +85,8 @@ async function adminFixture(page: Page, count = 2, allFeatured = false) {
       return route.fulfill({
         json: { items: [], total: 0, page: 1, pages: 0 },
       });
+    if (path === "/api/admin/uploads/groups")
+      return route.fulfill({ json: [] });
     return route.fulfill({ json: { ok: true } });
   });
   return state;

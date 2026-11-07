@@ -47,6 +47,8 @@ func (a *Server) Handler() http.Handler {
 	mux.Handle("POST /api/admin/github/sync", a.auth(http.HandlerFunc(a.manualSync)))
 	mux.Handle("GET /api/admin/uploads", a.auth(http.HandlerFunc(a.listUploads)))
 	mux.Handle("POST /api/admin/uploads", a.auth(http.HandlerFunc(a.uploadImage)))
+	mux.Handle("GET /api/admin/uploads/groups", a.auth(http.HandlerFunc(a.listUploadGroups)))
+	mux.Handle("PUT /api/admin/uploads/{id}/group", a.auth(http.HandlerFunc(a.moveUpload)))
 	mux.Handle("DELETE /api/admin/uploads/{id}", a.auth(http.HandlerFunc(a.deleteUpload)))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "接口不存在") })
 	mux.HandleFunc("GET /uploads/{filename}", a.serveImage)

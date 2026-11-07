@@ -92,6 +92,8 @@ async function fixture(page: Page) {
         },
       });
     }
+    if (path === "/api/admin/uploads/groups")
+      return route.fulfill({ json: state.contents });
     const detail = path.match(/^\/api\/(?:admin\/)?contents\/(\d+)$/);
     if (request.method() === "POST" || request.method() === "PUT") {
       if (state.failSave)
@@ -224,8 +226,7 @@ test("日常编辑支持排序、预览、草稿恢复及发布，文章编辑�
   for (const i of [1, 2, 3]) {
     await page.getByRole("button", { name: "从图片库选择" }).click();
     await page
-      .locator(".media-dialog[open] .media-picker-grid button")
-      .nth(i - 1)
+      .getByRole("button", { name: `使用 图片 ${i}`, exact: true })
       .click();
   }
   const thumbs = page.locator(".moment-edit-grid img");
@@ -299,16 +300,21 @@ test("批量上传、九张上限、空内容校验、失败保留及离开提�
     mimeType: "image/png",
     buffer: Buffer.from("fixture-image"),
   }));
-  const input = page.getByLabel("上传日常图片");
+  const upload = page.getByRole("button", { name: "上传图片", exact: true });
+  await upload.click();
+  const dialog = page.getByRole("dialog", { name: "上传图片", exact: true });
+  const input = dialog.getByLabel("选择图片文件");
   await input.setInputFiles(files);
-  await expect(
-    page.getByRole("alertdialog", { name: "每条日常最多 9 张图片" }),
-  ).toBeVisible();
+  await expect(dialog.getByRole("alert")).toContainText("还可添加 9 张图片");
   expect(state.uploaded).toBe(0);
-  await page.getByRole("button", { name: "我知道了", exact: true }).click();
   await input.setInputFiles(files.slice(0, 9));
+  await expect(dialog.getByText("等待上传", { exact: true })).toHaveCount(9);
+  expect(state.uploaded).toBe(0);
+  await dialog.getByRole("button", { name: "开始上传", exact: true }).click();
+  await expect(dialog.getByText("上传完成", { exact: true })).toHaveCount(9);
+  await dialog.getByRole("button", { name: "关闭图片选择" }).click();
   await expect(page.locator(".moment-edit-grid img")).toHaveCount(9);
-  await expect(input).toBeDisabled();
+  await expect(upload).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "从图片库选择" }),
   ).toBeDisabled();
@@ -316,12 +322,13 @@ test("批量上传、九张上限、空内容校验、失败保留及离开提�
   await expect(page).toHaveURL(/\/admin\/moments\/99$/);
   expect(state.saved[0]!.body).toBe("");
   expect(state.saved[0]!.images).toHaveLength(9);
+  expect(state.saved[0]!.upload_ids).toHaveLength(9);
   await page.reload();
   await expect(page.locator(".moment-edit-grid img")).toHaveCount(9);
   await page
     .getByRole("button", { name: "移除第 9 张配图", exact: true })
     .click();
-  await expect(input).toBeEnabled();
+  await expect(upload).toBeEnabled();
   await page.getByLabel("Markdown 配文").fill("失败后保留的配文");
   state.failSave = true;
   await page.getByRole("button", { name: "保存草稿", exact: true }).click();

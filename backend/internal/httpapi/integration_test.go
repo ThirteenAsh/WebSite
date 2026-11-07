@@ -381,35 +381,38 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 	var uploaded model.Upload
-	t.Run("真实图片校验引用保护和删除", func(t *testing.T) {
-		uploadFile := func(name string, data []byte, want int) []byte {
-			t.Helper()
-			var body bytes.Buffer
-			writer := multipart.NewWriter(&body)
-			part, _ := writer.CreateFormFile("file", name)
-			_, _ = part.Write(data)
-			_ = writer.Close()
-			req, _ := http.NewRequest("POST", server.URL+"/api/admin/uploads", &body)
-			req.Header.Set("Content-Type", writer.FormDataContentType())
-			req.Header.Set("X-CSRF-Token", csrf)
-			resp, e := admin.Do(req)
-			if e != nil {
-				t.Fatal(e)
-			}
-			defer resp.Body.Close()
-			raw, _ := io.ReadAll(resp.Body)
-			if resp.StatusCode != want {
-				t.Fatalf("上传HTTP%d want%d: %s", resp.StatusCode, want, raw)
-			}
-			return raw
+	uploadFile := func(t *testing.T, name string, data []byte, fields map[string]string, want int) []byte {
+		t.Helper()
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		for key, value := range fields {
+			_ = writer.WriteField(key, value)
 		}
-		uploadFile("fake.jpg", []byte("<script>alert(1)</script>"), 400)
-		uploadFile("vector.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), 400)
+		part, _ := writer.CreateFormFile("file", name)
+		_, _ = part.Write(data)
+		_ = writer.Close()
+		req, _ := http.NewRequest("POST", server.URL+"/api/admin/uploads", &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		req.Header.Set("X-CSRF-Token", csrf)
+		resp, e := admin.Do(req)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != want {
+			t.Fatalf("上传HTTP%d want%d: %s", resp.StatusCode, want, raw)
+		}
+		return raw
+	}
+	t.Run("真实图片校验引用保护和删除", func(t *testing.T) {
+		uploadFile(t, "fake.jpg", []byte("<script>alert(1)</script>"), nil, 400)
+		uploadFile(t, "vector.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), nil, 400)
 		img := image.NewRGBA(image.Rect(0, 0, 4, 4))
 		img.Set(1, 1, color.RGBA{255, 80, 40, 255})
 		var pngData bytes.Buffer
 		_ = png.Encode(&pngData, img)
-		raw := uploadFile("验收配图.png", append(pngData.Bytes(), []byte("UNWANTED-METADATA")...), 201)
+		raw := uploadFile(t, "验收配图.png", append(pngData.Bytes(), []byte("UNWANTED-METADATA")...), nil, 201)
 		if e := json.Unmarshal(raw, &uploaded); e != nil {
 			t.Fatal(e)
 		}
@@ -426,6 +429,85 @@ func TestIntegration(t *testing.T) {
 		request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", created["id"]), nil, 200, csrf)
 		request(admin, "DELETE", fmt.Sprintf("/api/admin/uploads/%d", uploaded.ID), nil, 200, csrf)
 		request(visitor, "GET", uploaded.URL, nil, 404, "")
+	})
+	t.Run("图片分类识别旧引用、首次保存归档、移动和重试", func(t *testing.T) {
+		var pngData bytes.Buffer
+		if err := png.Encode(&pngData, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+			t.Fatal(err)
+		}
+		imageUpload := func(name string, fields map[string]string, want int) model.Upload {
+			t.Helper()
+			var image model.Upload
+			if err := json.Unmarshal(uploadFile(t, name, pngData.Bytes(), fields, want), &image); err != nil {
+				t.Fatal(err)
+			}
+			return image
+		}
+		createArticle := func(input map[string]any) int64 {
+			t.Helper()
+			input["kind"], input["status"] = "article", "draft"
+			var created map[string]int64
+			if err := json.Unmarshal(request(admin, "POST", "/api/admin/contents", input, 201, csrf), &created); err != nil {
+				t.Fatal(err)
+			}
+			return created["id"]
+		}
+		assertUploads := func(query string, want ...int64) {
+			t.Helper()
+			var page struct {
+				Items []model.Upload `json:"items"`
+				Total int            `json:"total"`
+			}
+			if err := json.Unmarshal(request(admin, "GET", "/api/admin/uploads?"+query, nil, 200, ""), &page); err != nil {
+				t.Fatal(err)
+			}
+			ids := []int64{}
+			for _, image := range page.Items {
+				ids = append(ids, image.ID)
+			}
+			if !slices.Equal(ids, want) || page.Total != len(want) {
+				t.Fatalf("图片查询 %s 返回 %v，期望 %v", query, ids, want)
+			}
+		}
+		legacy := imageUpload("旧图100%.png", nil, 201)
+		pending := imageUpload("批量预备图.png", nil, 201)
+		first := createArticle(map[string]any{
+			"title": "图片分组文章", "body": "![旧图](" + legacy.URL + ")", "upload_ids": []int64{pending.ID},
+		})
+		second := createArticle(map[string]any{
+			"title": "复用旧图的文章", "cover_url": server.URL + legacy.URL, "upload_ids": []int64{pending.ID},
+		})
+		firstQuery := fmt.Sprintf("content_id=%d", first)
+		secondQuery := fmt.Sprintf("content_id=%d", second)
+		assertUploads(firstQuery, pending.ID, legacy.ID)
+		assertUploads(secondQuery, legacy.ID)
+		assertUploads("content_id=0")
+		assertUploads(firstQuery+"&q=100%25", legacy.ID)
+		assertUploads(firstQuery + "&q=%5F")
+		if groups := request(admin, "GET", "/api/admin/uploads/groups", nil, 200, ""); !bytes.Contains(groups, []byte("图片分组文章")) {
+			t.Fatalf("分类未包含新文章：%s", groups)
+		}
+		fields := map[string]string{"content_id": fmt.Sprint(first), "upload_key": randomToken()[:32]}
+		fresh := imageUpload("新图.png", fields, 201)
+		retry := imageUpload("新图.png", fields, 200)
+		if retry.ID != fresh.ID || retry.URL != fresh.URL {
+			t.Fatalf("重试重复创建了图片：%+v %+v", fresh, retry)
+		}
+		assertUploads(firstQuery, fresh.ID, pending.ID, legacy.ID)
+		groupPath := fmt.Sprintf("/api/admin/uploads/%d/group", fresh.ID)
+		request(admin, "PUT", groupPath, map[string]int64{"content_id": 99999999}, 404, csrf)
+		request(admin, "PUT", groupPath, map[string]int64{"content_id": second}, 200, csrf)
+		request(admin, "PUT", groupPath, map[string]int64{"content_id": second}, 200, csrf)
+		assertUploads(secondQuery, fresh.ID, legacy.ID)
+		request(visitor, "GET", fresh.URL, nil, 200, "")
+		request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", second), nil, 200, csrf)
+		assertUploads("content_id=0", fresh.ID)
+		for _, id := range []int64{fresh.ID, pending.ID} {
+			request(admin, "DELETE", fmt.Sprintf("/api/admin/uploads/%d", id), nil, 200, csrf)
+		}
+		request(admin, "DELETE", fmt.Sprintf("/api/admin/uploads/%d", legacy.ID), nil, 409, csrf)
+		request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", first), nil, 200, csrf)
+		request(admin, "DELETE", fmt.Sprintf("/api/admin/uploads/%d", legacy.ID), nil, 200, csrf)
 	})
 	t.Run("GitHub选择导入同步保留自定义字段", func(t *testing.T) {
 		assertRepoContent := func(wantID int64) {

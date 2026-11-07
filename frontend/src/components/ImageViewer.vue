@@ -4,7 +4,7 @@ import Icon from "./Icon.vue";
 import RoundedCloseIcon from "./RoundedCloseIcon.vue";
 import PictureStickerIcon from "./PictureStickerIcon.vue";
 
-const props = defineProps<{ images: string[] }>();
+const props = defineProps<{ images: string[]; originalLink?: boolean }>();
 const dialog = ref<HTMLDialogElement>();
 const visible = ref(false);
 const current = ref(0);
@@ -113,7 +113,15 @@ defineExpose({ open });
           </p>
         </div>
         <footer class="image-viewer-footer">
-          <span class="image-viewer-hint">点击空白处关闭</span>
+          <a
+            v-if="originalLink && selected && !failed"
+            class="text-link"
+            :href="selected"
+            target="_blank"
+            rel="noopener noreferrer"
+            >打开原图</a
+          >
+          <span v-else class="image-viewer-hint">点击空白处关闭</span>
           <div class="image-viewer-navigation">
             <button
               v-if="images.length > 1"

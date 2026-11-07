@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { errorMessage, notify, upload } from "../lib/api";
 import { showError } from "../lib/dialogs";
+import type { Upload } from "../lib/types";
 import Icon from "./Icon.vue";
 import MediaPicker from "./MediaPicker.vue";
 
 const images = defineModel<string[]>({ required: true });
-const props = defineProps<{ disabled?: boolean }>();
-const emit = defineEmits<{ uploading: [value: boolean] }>();
+const props = defineProps<{ disabled?: boolean; contentId: number }>();
+const emit = defineEmits<{
+  uploading: [value: boolean];
+  uploaded: [image: Upload];
+}>();
 const picker = ref<InstanceType<typeof MediaPicker>>();
+const uploadPicker = ref<InstanceType<typeof MediaPicker>>();
 const uploading = ref(false),
   dragged = ref<number | null>(null),
   announcement = ref("");
@@ -53,49 +57,13 @@ function select(url: string) {
   }
   images.value = [...images.value, url];
 }
-async function add(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const files = Array.from(input.files || []);
-  input.value = "";
-  if (locked.value || !files.length) return;
-  if (files.length + images.value.length > 9) {
-    void showError(
-      `还可以添加 ${9 - images.value.length} 张图片，请重新选择。`,
-      "每条日常最多 9 张图片",
-    );
-    return;
-  }
-  const invalid = files.find(
-    (file) =>
-      !["image/jpeg", "image/png", "image/gif"].includes(file.type) ||
-      file.size > 8 * 1024 * 1024,
-  );
-  if (invalid) {
-    void showError(
-      "请选择 JPG、PNG 或 GIF 图片，单张不超过 8MB。",
-      "图片格式或大小不符合要求",
-    );
-    return;
-  }
-  uploading.value = true;
-  emit("uploading", true);
-  let added = 0;
-  try {
-    for (const file of files) {
-      const image = await upload(file);
-      images.value = [...images.value, image.url];
-      added++;
-    }
-    notify(`已添加 ${added} 张图片`);
-  } catch (e) {
-    void showError(
-      `${errorMessage(e)}${added ? `。已上传的 ${added} 张图片已保留，可继续添加其余图片。` : ""}`,
-      "图片上传未完成",
-    );
-  } finally {
-    uploading.value = false;
-    emit("uploading", false);
-  }
+function setUploading(value: boolean) {
+  uploading.value = value;
+  emit("uploading", value);
+}
+function add(image: Upload) {
+  if (images.value.length < 9) images.value = [...images.value, image.url];
+  emit("uploaded", image);
 }
 </script>
 
@@ -155,22 +123,14 @@ async function add(event: Event) {
       </div>
     </div>
     <div class="moment-image-actions">
-      <label
-        class="btn secondary upload-label"
-        :class="{ disabled: locked || images.length >= 9 }"
+      <button
+        type="button"
+        class="btn secondary"
+        :disabled="locked || images.length >= 9"
+        @click="uploadPicker?.open()"
       >
-        <Icon name="plus" :size="17" />{{
-          uploading ? "正在上传…" : "上传图片"
-        }}
-        <input
-          type="file"
-          multiple
-          accept="image/jpeg,image/png,image/gif"
-          aria-label="上传日常图片"
-          :disabled="locked || images.length >= 9"
-          @change="add"
-        />
-      </label>
+        <Icon name="plus" :size="17" />上传图片
+      </button>
       <button
         class="text-link"
         :disabled="locked || images.length >= 9"
@@ -183,7 +143,21 @@ async function add(event: Event) {
       >
     </div>
     <p class="sr-only" role="status">{{ announcement }}</p>
-    <MediaPicker ref="picker" @select="select" />
+    <MediaPicker
+      ref="picker"
+      :content-id="contentId"
+      @select="select"
+      @uploaded="emit('uploaded', $event)"
+      @uploading="setUploading"
+    />
+    <MediaPicker
+      ref="uploadPicker"
+      :content-id="contentId"
+      :upload-limit="9 - images.length"
+      upload-only
+      @uploaded="add"
+      @uploading="setUploading"
+    />
   </div>
 </template>
 

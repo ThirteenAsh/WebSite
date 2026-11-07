@@ -413,20 +413,27 @@ test("日常图片上传、直接展示、旧链接兼容、图片引用保护�
     token = await csrf(page.request);
     await page.getByLabel("Markdown 配文").fill(marker);
     await page.getByRole("button", { name: "从图片库选择" }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    const picker = page.getByRole("dialog", { name: "选择图片", exact: true });
+    await picker.getByRole("button", { name: "上传队列", exact: true }).click();
     const responsePromise = page.waitForResponse(
       (r) =>
         r.url().endsWith("/api/admin/uploads") &&
         r.request().method() === "POST",
     );
-    await page
-      .locator(".media-dialog[open] input[type=file]")
+    await picker
+      .getByLabel("选择图片文件")
       .setInputFiles(
         fileURLToPath(new URL("../public/avatar.jpg", import.meta.url)),
       );
-    const uploaded = await (await responsePromise).json();
+    await picker.getByRole("button", { name: "开始上传", exact: true }).click();
+    const uploadResponse = await responsePromise;
+    expect(uploadResponse.ok()).toBeTruthy();
+    const uploaded = await uploadResponse.json();
     imageID = uploaded.id;
-    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await picker
+      .getByRole("button", { name: "使用 avatar.jpg", exact: true })
+      .click();
+    await expect(picker).not.toBeVisible();
     await expect(page.locator(".moment-edit-grid img")).toHaveCount(1);
     const createdPromise = page.waitForResponse(
       (response) =>

@@ -13,7 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/go-sql-driver/mysql"
 
 	"thirteenash/internal/model"
 )
@@ -21,6 +26,41 @@ import (
 const maxImageBytes = 8 << 20
 
 var imageFilename = regexp.MustCompile(`^[0-9a-f]{64}\.(jpg|png|gif)$`)
+var uploadKeyPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+const uploadColumns = "u.id,u.filename,u.original_name,u.mime_type,u.size_bytes,u.width,u.height,u.created_at,u.content_id"
+
+// 旧图和跨内容复用的图片也按实际引用出现在对应分类中。
+const uploadReference = `(LOCATE(CONCAT('/uploads/',u.filename),c.body)>0 OR LOCATE(CONCAT('/uploads/',u.filename),c.cover_url)>0 OR LOCATE(u.filename,CAST(c.images AS CHAR))>0)`
+
+func scanUpload(row interface{ Scan(...any) error }) (model.Upload, error) {
+	var u model.Upload
+	err := row.Scan(&u.ID, &u.Filename, &u.OriginalName, &u.MIME, &u.Size, &u.Width, &u.Height, &u.CreatedAt, &u.ContentID)
+	u.URL = "/uploads/" + u.Filename
+	return u, err
+}
+
+func uploadWriteError(w http.ResponseWriter, err error) {
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1452 {
+		fail(w, 404, "所选内容分类已不存在")
+		return
+	}
+	serverError(w, err)
+}
+
+func (a *Server) respondToUploadRetry(w http.ResponseWriter, r *http.Request, key string) bool {
+	u, err := scanUpload(a.db.QueryRowContext(r.Context(), "SELECT "+uploadColumns+" FROM uploads u WHERE u.upload_key=?", key))
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
+	if err != nil {
+		serverError(w, err)
+	} else {
+		jsonResponse(w, 200, u)
+	}
+	return true
+}
 
 func (a *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+(1<<20))
@@ -29,6 +69,27 @@ func (a *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.MultipartForm.RemoveAll()
+	var contentID *int64
+	if value := r.FormValue("content_id"); value != "" {
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id < 1 {
+			fail(w, 400, "图片分类无效")
+			return
+		}
+		contentID = &id
+	}
+	key := r.FormValue("upload_key")
+	var uploadKey any
+	if key != "" {
+		if !uploadKeyPattern.MatchString(key) {
+			fail(w, 400, "上传编号无效")
+			return
+		}
+		if a.respondToUploadRetry(w, r, key) {
+			return
+		}
+		uploadKey = key
+	}
 	file, header, e := r.FormFile("file")
 	if e != nil {
 		fail(w, 400, "请选择图片")
@@ -95,24 +156,51 @@ func (a *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 	if len([]rune(original)) > 200 {
 		original = string([]rune(original)[:200])
 	}
-	result, e := a.db.ExecContext(r.Context(), "INSERT INTO uploads(filename,original_name,mime_type,size_bytes,width,height) VALUES(?,?,?,?,?,?)", name, original, mime, cleaned.Len(), cfg.Width, cfg.Height)
+	result, e := a.db.ExecContext(r.Context(), "INSERT INTO uploads(filename,original_name,mime_type,size_bytes,width,height,content_id,upload_key) VALUES(?,?,?,?,?,?,?,?)", name, original, mime, cleaned.Len(), cfg.Width, cfg.Height, contentID, uploadKey)
 	if e != nil {
 		_ = os.Remove(path)
-		serverError(w, e)
+		var mysqlErr *mysql.MySQLError
+		if key != "" && errors.As(e, &mysqlErr) && mysqlErr.Number == 1062 && a.respondToUploadRetry(w, r, key) {
+			return
+		}
+		uploadWriteError(w, e)
 		return
 	}
 	id, _ := result.LastInsertId()
-	jsonResponse(w, 201, model.Upload{ID: id, Filename: name, OriginalName: original, MIME: mime, Size: int64(cleaned.Len()), Width: cfg.Width, Height: cfg.Height, URL: "/uploads/" + name})
+	jsonResponse(w, 201, model.Upload{ID: id, Filename: name, OriginalName: original, MIME: mime, Size: int64(cleaned.Len()), Width: cfg.Width, Height: cfg.Height, CreatedAt: time.Now().UTC(), URL: "/uploads/" + name, ContentID: contentID})
 }
 func (a *Server) listUploads(w http.ResponseWriter, r *http.Request) {
 	page := intQuery(r, "page", 1, 1, 100000)
 	limit := 24
+	where := "1=1"
+	args := []any{}
+	switch group := r.URL.Query().Get("content_id"); group {
+	case "":
+	case "0":
+		where = "u.content_id IS NULL AND NOT EXISTS (SELECT 1 FROM contents c WHERE " + uploadReference + ")"
+	default:
+		id, err := strconv.ParseInt(group, 10, 64)
+		if err != nil || id < 1 {
+			fail(w, 400, "图片分类无效")
+			return
+		}
+		where = "(u.content_id=? OR EXISTS (SELECT 1 FROM contents c WHERE c.id=? AND " + uploadReference + "))"
+		args = append(args, id, id)
+	}
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+		if utf8.RuneCountInString(q) > 100 {
+			fail(w, 400, "搜索词最多 100 字")
+			return
+		}
+		where += " AND u.original_name LIKE ? ESCAPE '='"
+		args = append(args, "%"+strings.NewReplacer("=", "==", "%", "=%", "_", "=_").Replace(q)+"%")
+	}
 	var total int
-	if e := a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM uploads").Scan(&total); e != nil {
+	if e := a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM uploads u WHERE "+where, args...).Scan(&total); e != nil {
 		serverError(w, e)
 		return
 	}
-	rows, e := a.db.QueryContext(r.Context(), "SELECT id,filename,original_name,mime_type,size_bytes,width,height,created_at FROM uploads ORDER BY id DESC LIMIT ? OFFSET ?", limit, (page-1)*limit)
+	rows, e := a.db.QueryContext(r.Context(), "SELECT "+uploadColumns+" FROM uploads u WHERE "+where+" ORDER BY u.id DESC LIMIT ? OFFSET ?", append(args, limit, (page-1)*limit)...)
 	if e != nil {
 		serverError(w, e)
 		return
@@ -120,12 +208,11 @@ func (a *Server) listUploads(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []model.Upload{}
 	for rows.Next() {
-		var u model.Upload
-		if e = rows.Scan(&u.ID, &u.Filename, &u.OriginalName, &u.MIME, &u.Size, &u.Width, &u.Height, &u.CreatedAt); e != nil {
+		u, e := scanUpload(rows)
+		if e != nil {
 			serverError(w, e)
 			return
 		}
-		u.URL = "/uploads/" + u.Filename
 		items = append(items, u)
 	}
 	if e = rows.Err(); e != nil {
@@ -134,13 +221,75 @@ func (a *Server) listUploads(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResponse(w, 200, map[string]any{"items": items, "total": total, "page": page, "pages": (total + limit - 1) / limit})
 }
+func (a *Server) listUploadGroups(w http.ResponseWriter, r *http.Request) {
+	type group struct {
+		ID        int64     `json:"id"`
+		Kind      string    `json:"kind"`
+		Title     string    `json:"title"`
+		CreatedAt time.Time `json:"created_at"`
+	}
+	rows, err := a.db.QueryContext(r.Context(), "SELECT id,kind,title,created_at FROM contents ORDER BY updated_at DESC,id DESC")
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	defer rows.Close()
+	groups := []group{}
+	for rows.Next() {
+		var g group
+		if err := rows.Scan(&g.ID, &g.Kind, &g.Title, &g.CreatedAt); err != nil {
+			serverError(w, err)
+			return
+		}
+		groups = append(groups, g)
+	}
+	if err := rows.Err(); err != nil {
+		serverError(w, err)
+		return
+	}
+	jsonResponse(w, 200, groups)
+}
+func (a *Server) moveUpload(w http.ResponseWriter, r *http.Request) {
+	id, ok := contentID(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		ContentID *int64 `json:"content_id"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if input.ContentID != nil && *input.ContentID < 1 {
+		fail(w, 400, "图片分类无效")
+		return
+	}
+	result, err := a.db.ExecContext(r.Context(), "UPDATE uploads SET content_id=? WHERE id=?", input.ContentID, id)
+	if err != nil {
+		uploadWriteError(w, err)
+		return
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		var exists bool
+		if err = a.db.QueryRowContext(r.Context(), "SELECT EXISTS (SELECT 1 FROM uploads WHERE id=?)", id).Scan(&exists); err != nil {
+			serverError(w, err)
+			return
+		}
+		if !exists {
+			fail(w, 404, "图片不存在")
+			return
+		}
+	}
+	jsonResponse(w, 200, map[string]bool{"ok": true})
+}
 func (a *Server) deleteUpload(w http.ResponseWriter, r *http.Request) {
 	id, ok := contentID(w, r)
 	if !ok {
 		return
 	}
 	var name string
-	e := a.db.QueryRowContext(r.Context(), "SELECT filename FROM uploads WHERE id=?", id).Scan(&name)
+	var used bool
+	e := a.db.QueryRowContext(r.Context(), "SELECT u.filename, EXISTS (SELECT 1 FROM contents c WHERE "+uploadReference+") FROM uploads u WHERE u.id=?", id).Scan(&name, &used)
 	if errors.Is(e, sql.ErrNoRows) {
 		fail(w, 404, "图片不存在")
 		return
@@ -149,18 +298,12 @@ func (a *Server) deleteUpload(w http.ResponseWriter, r *http.Request) {
 		serverError(w, e)
 		return
 	}
-	url := "/uploads/" + name
-	var n int
-	if e = a.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM contents WHERE LOCATE(?,body)>0 OR cover_url=? OR LOCATE(?,CAST(images AS CHAR))>0", url, url, name).Scan(&n); e != nil {
-		serverError(w, e)
-		return
-	}
 	var settings []byte
 	if e = a.db.QueryRowContext(r.Context(), "SELECT payload FROM settings WHERE id=1").Scan(&settings); e != nil {
 		serverError(w, e)
 		return
 	}
-	if n > 0 || strings.Contains(string(settings), name) {
+	if used || strings.Contains(string(settings), name) {
 		fail(w, 409, "图片仍被内容或个人信息引用，请先移除引用并保存")
 		return
 	}

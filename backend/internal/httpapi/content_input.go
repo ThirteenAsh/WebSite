@@ -27,6 +27,7 @@ type contentInput struct {
 	DocsURL       string               `json:"docs_url"`
 	ReleaseURL    string               `json:"release_url"`
 	RepoOverrides *model.RepoOverrides `json:"repo_overrides"`
+	UploadIDs     []int64              `json:"upload_ids"`
 }
 
 func (v contentInput) content() model.Content {

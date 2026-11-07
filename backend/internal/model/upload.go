@@ -14,4 +14,5 @@ type Upload struct {
 	Height       int       `json:"height"`
 	CreatedAt    time.Time `json:"created_at"`
 	URL          string    `json:"url"`
+	ContentID    *int64    `json:"content_id"`
 }

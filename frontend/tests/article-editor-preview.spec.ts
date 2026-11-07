@@ -208,6 +208,9 @@ test("从图片库选图或本机上传后保留正文中间的光标和滚动�
   const state = await fixture(page);
   const lines = Array.from({ length: 120 }, (_, i) => `第 ${i + 1} 行正文`);
   state.article.body = lines.join("\n");
+  await page.route("**/api/admin/uploads/groups", (route) =>
+    route.fulfill({ json: [state.article] }),
+  );
   await page.route("**/api/admin/uploads?*", (route) =>
     route.fulfill({
       json: {
@@ -218,9 +221,10 @@ test("从图片库选图或本机上传后保留正文中间的光标和滚动�
       },
     }),
   );
-  await page.route("**/api/admin/uploads", (route) =>
-    route.fulfill({ json: { id: 2, url: "/beian-police.png" } }),
-  );
+  await page.route("**/api/admin/uploads", (route) => {
+    expect(route.request().postData()).toMatch(/name="content_id"\r\n\r\n42/);
+    return route.fulfill({ json: { id: 2, url: "/beian-police.png" } });
+  });
   await page.goto("/admin/contents/42");
   const source = page.getByRole("textbox", { name: "Markdown 正文" });
   await expect(source).toHaveValue(state.article.body);
@@ -247,14 +251,27 @@ test("从图片库选图或本机上传后保留正文中间的光标和滚动�
   for (const { url, choose } of [
     {
       url: "/avatar.jpg",
-      choose: () => dialog.getByRole("button", { name: /示例图片/ }).click(),
+      choose: () =>
+        dialog
+          .getByRole("button", { name: "使用 示例图片", exact: true })
+          .click(),
     },
     {
       url: "/beian-police.png",
-      choose: () =>
-        dialog
-          .locator('input[type="file"]')
-          .setInputFiles("public/beian-police.png"),
+      choose: async () => {
+        await dialog
+          .getByRole("button", { name: "上传队列", exact: true })
+          .click();
+        await dialog
+          .getByLabel("选择图片文件")
+          .setInputFiles("public/beian-police.png");
+        await dialog
+          .getByRole("button", { name: "开始上传", exact: true })
+          .click();
+        await dialog
+          .getByRole("button", { name: "使用 beian-police.png", exact: true })
+          .click();
+      },
     },
   ]) {
     await insertImage.click();
