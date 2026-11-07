@@ -2506,6 +2506,9 @@ label > .paper-select {
 }
 .markdown-editor--article .editor-source > textarea {
   min-height: 344px;
+  max-height: min(75vh, 780px);
+  field-sizing: content;
+  overflow-y: auto;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 6px;

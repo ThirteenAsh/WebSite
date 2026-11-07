@@ -115,6 +115,57 @@ test("文章原文和渲染互斥显示，切换保留光标，预览模式仍�
   expect(state.errors).toEqual([]);
 });
 
+test("中文标点后紧接汉字时，文章详情和编辑预览都能正确加粗", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  const paragraph =
+    "`.minecraft`文件夹内部是 Minecraft 本体，与它同级的启动器会寻找并启动它，所以，不要再问**为什么打开另一个启动器，游戏不见了！**因此**不要把启动器本体放在桌面！！**你可以在D盘或者合适的地方新建文件夹，然后把启动器丢进去，只要同级有该文件夹，你的游戏启动器会自动识别到游戏。";
+  const literal = "前文**示例！**后文";
+  state.article.body = `${paragraph}\n\n\`${literal}\`\n\n\`\`\`md\n${literal}\n\`\`\``;
+  state.article.status = "published";
+  await page.route("**/api/site", (route) =>
+    route.fulfill({
+      json: { settings: null, counts: { projects: 0, writings: 1 } },
+    }),
+  );
+  await page.route("**/api/visitor", (route) =>
+    route.fulfill({ json: { ok: true } }),
+  );
+  await page.route("**/api/contents/42", (route) =>
+    route.fulfill({ json: state.article }),
+  );
+  await page.route("**/api/contents/42/view", (route) =>
+    route.fulfill({ json: { view_count: 1 } }),
+  );
+
+  await page.goto("/articles/42");
+  const articleBody = page.locator(".detail-body .markdown");
+  const expected = [
+    "为什么打开另一个启动器，游戏不见了！",
+    "不要把启动器本体放在桌面！！",
+  ];
+  await expect(articleBody.locator("strong")).toHaveText(expected);
+  await expect(articleBody.locator("p").first()).toHaveText(
+    paragraph.replace(/`|\*\*/g, ""),
+  );
+  await expect(articleBody.locator("code")).toHaveText([
+    ".minecraft",
+    literal,
+    literal,
+  ]);
+
+  await page.goto("/admin/contents/42");
+  await expect(
+    page.getByRole("textbox", { name: "Markdown 正文" }),
+  ).toHaveValue(state.article.body);
+  await page.getByRole("tab", { name: "预览", exact: true }).click();
+  await expect(page.locator(".editor-preview .markdown strong")).toHaveText(
+    expected,
+  );
+  expect(state.errors).toEqual([]);
+});
+
 test("新文章可查看空预览，预览不触发修改提醒，作品编辑仍保持并排", async ({
   page,
 }) => {
@@ -151,10 +202,110 @@ test("新文章可查看空预览，预览不触发修改提醒，作品编辑�
   expect(state.errors).toEqual([]);
 });
 
+test("从图片库选图或本机上传后保留正文中间的光标和滚动位置", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  const lines = Array.from({ length: 120 }, (_, i) => `第 ${i + 1} 行正文`);
+  state.article.body = lines.join("\n");
+  await page.route("**/api/admin/uploads?*", (route) =>
+    route.fulfill({
+      json: {
+        items: [{ id: 1, url: "/avatar.jpg", original_name: "示例图片" }],
+        total: 1,
+        page: 1,
+        pages: 1,
+      },
+    }),
+  );
+  await page.route("**/api/admin/uploads", (route) =>
+    route.fulfill({ json: { id: 2, url: "/beian-police.png" } }),
+  );
+  await page.goto("/admin/contents/42");
+  const source = page.getByRole("textbox", { name: "Markdown 正文" });
+  await expect(source).toHaveValue(state.article.body);
+  const insertImage = page.getByRole("button", {
+    name: "插入图片",
+    exact: true,
+  });
+  await insertImage.scrollIntoViewIfNeeded();
+  await page.evaluate(() => window.scrollTo({ top: 160, behavior: "instant" }));
+  let body = state.article.body;
+  let cursor = body.indexOf(lines[49]!) + lines[49]!.length;
+  const scrollBefore = await source.evaluate(
+    (el: HTMLTextAreaElement, cursor) => {
+      el.focus({ preventScroll: true });
+      el.setSelectionRange(cursor, cursor);
+      el.scrollTop = 46 * parseFloat(getComputedStyle(el).lineHeight);
+      return { editor: el.scrollTop, page: window.scrollY };
+    },
+    cursor,
+  );
+  expect(scrollBefore.editor).toBeGreaterThan(0);
+
+  const dialog = page.getByRole("dialog", { name: "选择图片" });
+  for (const { url, choose } of [
+    {
+      url: "/avatar.jpg",
+      choose: () => dialog.getByRole("button", { name: /示例图片/ }).click(),
+    },
+    {
+      url: "/beian-police.png",
+      choose: () =>
+        dialog
+          .locator('input[type="file"]')
+          .setInputFiles("public/beian-police.png"),
+    },
+  ]) {
+    await insertImage.click();
+    await choose();
+    await expect(dialog).toBeHidden();
+    const image = `\n![图片](${url})\n`;
+    body = body.slice(0, cursor) + image + body.slice(cursor);
+    cursor += image.length;
+    await expect(source).toHaveValue(body);
+    await expect(source).toBeFocused();
+    expect(
+      await source.evaluate((el: HTMLTextAreaElement) => ({
+        start: el.selectionStart,
+        end: el.selectionEnd,
+        editor: el.scrollTop,
+        page: window.scrollY,
+      })),
+    ).toEqual({ start: cursor, end: cursor, ...scrollBefore });
+  }
+  expect(state.errors).toEqual([]);
+});
+
+test("正文框随已保存内容和长文输入调整高度，超出上限在框内滚动", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  const lines = Array.from({ length: 120 }, (_, i) => `第 ${i + 1} 行正文`);
+  state.article.body = lines.slice(0, 18).join("\n");
+  await page.goto("/admin/contents/42");
+  const source = page.getByRole("textbox", { name: "Markdown 正文" });
+  await expect(source).toHaveValue(state.article.body);
+  const fittedHeight = await source.evaluate((el) => el.offsetHeight);
+  expect(fittedHeight).toBeGreaterThan(400);
+  expect(fittedHeight).toBeLessThan(780);
+
+  await source.fill(lines.join("\n"));
+  expect(await source.evaluate((el) => el.offsetHeight)).toBe(780);
+  await page.setViewportSize({ width: 1440, height: 720 });
+  expect(await source.evaluate((el) => el.offsetHeight)).toBe(540);
+  expect(await source.evaluate((el) => el.scrollHeight)).toBeGreaterThan(540);
+  await source.fill("短正文");
+  expect(await source.evaluate((el) => el.offsetHeight)).toBeLessThan(
+    fittedHeight,
+  );
+  expect(state.errors).toEqual([]);
+});
+
 test("正文右下角可拖动调整高度，切换预览后保留大小和文字", async ({ page }) => {
   const state = await fixture(page);
   state.article.body = Array.from(
-    { length: 50 },
+    { length: 18 },
     (_, i) => `第 ${i + 1} 行正文`,
   ).join("\n");
   await page.setViewportSize({ width: 1440, height: 1200 });
@@ -200,6 +351,9 @@ test("正文右下角可拖动调整高度，切换预览后保留大小和文�
     .toBeLessThan(expanded.height - 60);
   await expect(source).toHaveValue(state.article.body);
   await expect(page.getByText("修改已保存", { exact: false })).toBeVisible();
+  await source.dispatchEvent("paste");
+  await source.fill(`${state.article.body}\n`.repeat(4));
+  expect(await source.evaluate((el) => el.offsetHeight)).toBe(780);
   expect(state.saved).toEqual([]);
   expect(state.errors).toEqual([]);
 });

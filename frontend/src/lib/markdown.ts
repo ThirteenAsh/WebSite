@@ -1,10 +1,22 @@
-import { marked } from "marked";
+import { Marked } from "marked";
 import DOMPurify from "dompurify";
 import type { Content } from "./types";
 
+const markdown = new Marked({
+  hooks: {
+    emStrongMask(source) {
+      // 允许「标点 + ** + 汉字」处的星号结束加粗。只调整查找边界的副本，保持字符位置。
+      return source.replace(
+        /(?![*_\\])\p{P}(?=\*{2,}\p{Script=Han})/gu,
+        (punctuation) => "字".repeat(punctuation.length),
+      );
+    },
+  },
+});
+
 export function renderMarkdown(source: string) {
   return DOMPurify.sanitize(
-    marked.parse(source || "", { async: false, gfm: true, breaks: true }),
+    markdown.parse(source || "", { async: false, gfm: true, breaks: true }),
     {
       USE_PROFILES: { html: true },
       FORBID_TAGS: [

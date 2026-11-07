@@ -11,6 +11,7 @@ const dialog = ref<HTMLDialogElement>(),
   busy = ref(false),
   error = ref("");
 const result = ref<Page<Upload>>({ items: [], total: 0, page: 1, pages: 0 });
+let pickerSession = 0;
 async function load(page = 1) {
   loading.value = true;
   error.value = "";
@@ -25,7 +26,10 @@ async function load(page = 1) {
 }
 async function open() {
   await nextTick();
-  dialog.value?.showModal();
+  const el = dialog.value;
+  if (!el || el.open) return;
+  el.showModal();
+  pickerSession++;
   await load();
 }
 function choose(url: string) {
@@ -36,10 +40,11 @@ async function add(event: Event) {
   const input = event.target as HTMLInputElement,
     file = input.files?.[0];
   if (!file) return;
+  const session = pickerSession;
   busy.value = true;
   try {
     const image = await upload(file);
-    choose(image.url);
+    if (dialog.value?.open && session === pickerSession) choose(image.url);
     notify("图片已上传");
   } catch (e) {
     void showError(errorMessage(e), "图片上传未完成");

@@ -134,29 +134,53 @@ async function save(status: Content["status"]) {
     busy.value = false;
   }
 }
-function insert(before: string, after = "") {
-  const el = textarea.value,
-    start = el?.selectionStart ?? content.value.body.length,
-    end = el?.selectionEnd ?? start;
+function bodyPosition() {
+  const el = textarea.value;
+  if (!el) return;
+  return {
+    el,
+    start: el.selectionStart,
+    end: el.selectionEnd,
+    direction: el.selectionDirection,
+    scrollTop: el.scrollTop,
+    scrollLeft: el.scrollLeft,
+  };
+}
+let imagePosition: ReturnType<typeof bodyPosition>;
+function insert(before: string, after = "", position = bodyPosition()) {
+  if (!position || position.el !== textarea.value) return;
+  const { el, start, end, direction, scrollTop, scrollLeft } = position;
+  const body = el.value;
   content.value.body =
-    content.value.body.slice(0, start) +
+    body.slice(0, start) +
     before +
-    content.value.body.slice(start, end) +
+    body.slice(start, end) +
     after +
-    content.value.body.slice(end);
+    body.slice(end);
   nextTick(() => {
-    el?.focus();
-    el?.setSelectionRange(start + before.length, end + before.length);
+    if (el !== textarea.value) return;
+    el.focus({ preventScroll: true });
+    el.setSelectionRange(start + before.length, end + before.length, direction);
+    el.scrollTop = scrollTop;
+    el.scrollLeft = scrollLeft;
   });
 }
 function pick(target: "body" | "gallery") {
   imageTarget.value = target;
+  imagePosition = target === "body" ? bodyPosition() : undefined;
   picker.value?.open();
 }
 function selectedImage(url: string) {
-  if (imageTarget.value === "body") insert(`\n![图片](${url})\n`);
-  else if (content.value.images.length < 9) content.value.images.push(url);
+  if (imageTarget.value === "body") {
+    if (imagePosition) insert(`\n![图片](${url})\n`, "", imagePosition);
+    imagePosition = undefined;
+  } else if (content.value.images.length < 9) content.value.images.push(url);
   else void showError("最多添加 9 张配图", "配图数量已达上限");
+}
+function resetArticleBodyHeight() {
+  if (!isProject.value && CSS.supports("field-sizing", "content")) {
+    textarea.value?.style.removeProperty("height");
+  }
 }
 function beforeUnload(e: BeforeUnloadEvent) {
   if (dirty.value) {
@@ -408,6 +432,7 @@ onBeforeRouteUpdate((to, from) => {
                 aria-label="Markdown 正文"
                 spellcheck="false"
                 placeholder="从这里开始写…&#10;&#10;支持 Markdown、代码块、表格和图片。"
+                @paste="resetArticleBodyHeight"
               />
             </div>
             <div
