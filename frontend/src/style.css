@@ -2415,14 +2415,14 @@ html:has(.media-dialog[open]) {
   background: #29221d70;
 }
 .media-group-dialog fieldset {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-inline-size: 0;
   gap: 10px;
   margin: 0;
   padding: 0;
   border: 0;
-}
-.media-group-dialog .btn {
-  flex-shrink: 0;
 }
 .image-upload-queue {
   display: flex;

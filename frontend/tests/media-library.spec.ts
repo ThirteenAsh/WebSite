@@ -22,7 +22,8 @@ async function fixture(page: Page) {
     })),
     attempts: [] as { name: string; key: string; contentId: number | null }[],
     claimed: [] as number[],
-    waitForUpload: undefined as Promise<void> | undefined,
+    waitForUpload: undefined as
+      ((name: string) => Promise<void> | undefined) | undefined,
   };
   await page.route("**/api/admin/**", async (route) => {
     const request = route.request();
@@ -52,7 +53,8 @@ async function fixture(page: Page) {
       const contentId =
         Number(body.match(/name="content_id"\r\n\r\n(\d+)/)?.[1]) || null;
       state.attempts.push({ name, key, contentId });
-      await state.waitForUpload;
+      const id = 29 + state.attempts.length;
+      await state.waitForUpload?.(name);
       if (
         name === "retry.png" &&
         state.attempts.filter((item) => item.name === name).length === 1
@@ -64,7 +66,7 @@ async function fixture(page: Page) {
       }
       const image = {
         ...state.uploads[0]!,
-        id: 29 + state.attempts.length,
+        id,
         original_name: name,
         content_id: contentId,
       };
@@ -159,7 +161,7 @@ test("选择器默认按当前文章找图，支持分页和大图，后台可�
     "src",
     "/avatar.jpg?image=1",
   );
-  await expect(viewer.getByRole("link", { name: "打开原图" })).toHaveAttribute(
+  await expect(viewer.getByRole("link", { name: "打开大图" })).toHaveAttribute(
     "href",
     "/avatar.jpg?image=1",
   );
@@ -220,7 +222,7 @@ test("选择器默认按当前文章找图，支持分页和大图，后台可�
   await expect(upload).toContainText("上传到 安装教程");
   expect(state.attempts).toEqual([]);
   const gate = Promise.withResolvers<void>();
-  state.waitForUpload = gate.promise;
+  state.waitForUpload = () => gate.promise;
   try {
     await upload.getByRole("button", { name: "开始上传", exact: true }).click();
     await expect(destination).toBeDisabled();
@@ -234,7 +236,7 @@ test("选择器默认按当前文章找图，支持分页和大图，后台可�
   await expect(upload.getByText("上传完成", { exact: true })).toHaveCount(2);
   await expect(destination).toBeEnabled();
   expect(
-    state.attempts.map(({ name, contentId }) => [name, contentId]),
+    state.attempts.map(({ name, contentId }) => [name, contentId]).sort(),
   ).toEqual([
     ["batch.png", 42],
     ["retry.png", 42],
@@ -244,12 +246,45 @@ test("选择器默认按当前文章找图，支持分页和大图，后台可�
   await expect(libraryFilter).toHaveText("小工具");
 });
 
+test("长分类标题时图片归类弹窗完整显示保存按钮", async ({ page }) => {
+  const state = await fixture(page);
+  state.article.title =
+    "深入理解 Linux I/O 多路复用：epoll 的工作原理与常见性能优化";
+  await page.goto("/admin/media");
+  await page
+    .locator(".media-card")
+    .filter({ hasText: "安装步骤-1.png" })
+    .getByRole("button", { name: "归类", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "图片归类" });
+  await expect(dialog.getByRole("combobox", { name: "归入分类" })).toHaveText(
+    state.article.title,
+  );
+  const save = dialog.getByRole("button", { name: "保存分类" });
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: 740 });
+    expect(await dialog.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(
+      0,
+    );
+    const box = (await save.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(
+      await dialog.evaluate((el) => el.getBoundingClientRect().right),
+    );
+  }
+});
+
 test("选图先进入队列，显示每个文件状态，重试失败项并随草稿归档", async ({
   page,
 }) => {
   const state = await fixture(page);
-  const gate = Promise.withResolvers<void>();
-  state.waitForUpload = gate.promise;
+  const first = Promise.withResolvers<void>();
+  const second = Promise.withResolvers<void>();
+  state.waitForUpload = (name) =>
+    name === "first.png"
+      ? first.promise
+      : name === "retry.png"
+        ? second.promise
+        : undefined;
   await page.goto("/admin/contents/new");
   await page.getByLabel("标题", { exact: true }).fill("新文章批量配图");
   await page.getByRole("button", { name: "插入图片" }).click();
@@ -266,9 +301,13 @@ test("选图先进入队列，显示每个文件状态，重试失败项并随�
   });
   await input.setInputFiles(file("first.png"));
   await expect(picker.getByText("继续选择", { exact: true })).toBeVisible();
-  await input.setInputFiles([file("retry.png"), file("remove.png")]);
+  await input.setInputFiles([
+    file("retry.png"),
+    file("third.png"),
+    file("remove.png"),
+  ]);
   await picker.getByRole("button", { name: "移除队列中的 remove.png" }).click();
-  await expect(picker.getByText("等待上传", { exact: true })).toHaveCount(2);
+  await expect(picker.getByText("等待上传", { exact: true })).toHaveCount(3);
   expect(state.attempts).toEqual([]);
   try {
     await picker.getByRole("button", { name: "开始上传", exact: true }).click();
@@ -276,26 +315,47 @@ test("选图先进入队列，显示每个文件状态，重试失败项并随�
       picker.getByRole("progressbar", { name: "上传 first.png" }),
     ).toBeVisible();
     await expect(
+      picker.getByRole("progressbar", { name: "上传 retry.png" }),
+    ).toBeVisible();
+    await expect
+      .poll(() => state.attempts.map(({ name }) => name).sort())
+      .toEqual(["first.png", "retry.png"]);
+    await expect(picker.getByText("等待上传", { exact: true })).toHaveCount(1);
+    await expect(
       picker.getByRole("button", { name: "关闭图片选择" }),
     ).toBeDisabled();
     await picker.screenshot({ path: "../.local/media-upload-queue.png" });
+    second.resolve();
+    await expect(
+      picker.getByRole("button", { name: "使用 third.png" }),
+    ).toBeVisible();
+    await expect(
+      picker.getByRole("progressbar", { name: "上传 first.png" }),
+    ).toBeVisible();
   } finally {
-    gate.resolve();
+    first.resolve();
+    second.resolve();
   }
-  await expect(picker.getByText("上传完成", { exact: true })).toHaveCount(1);
+  await expect(picker.getByText("上传完成", { exact: true })).toHaveCount(2);
   await expect(picker.getByText("图片暂时无法保存")).toBeVisible();
   await picker.getByRole("button", { name: "重试失败项" }).click();
-  await expect(picker.getByText("上传完成", { exact: true })).toHaveCount(2);
-  expect(state.attempts.map((attempt) => attempt.name)).toEqual([
+  await expect(picker.getByText("上传完成", { exact: true })).toHaveCount(3);
+  expect(state.attempts.map((attempt) => attempt.name).sort()).toEqual([
     "first.png",
     "retry.png",
     "retry.png",
+    "third.png",
   ]);
-  expect(state.attempts[1]!.key).toMatch(/^[0-9a-f]{32}$/);
-  expect(state.attempts[2]!.key).toBe(state.attempts[1]!.key);
+  const retries = state.attempts.filter(({ name }) => name === "retry.png");
+  expect(retries[0]!.key).toMatch(/^[0-9a-f]{32}$/);
+  expect(retries[1]!.key).toBe(retries[0]!.key);
   await picker.getByRole("button", { name: "关闭图片选择" }).click();
   await expect(page.getByLabel("Markdown 正文")).toHaveValue("");
   await page.getByRole("button", { name: "保存草稿" }).click();
   await expect(page).toHaveURL(/\/admin\/contents\/42$/);
-  expect(state.claimed).toEqual([30, 32]);
+  expect(state.claimed).toEqual(
+    ["first.png", "third.png", "retry.png"].map(
+      (name) => state.uploads.find((image) => image.original_name === name)!.id,
+    ),
+  );
 });

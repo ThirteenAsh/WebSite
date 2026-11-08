@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import { errorMessage, imageFileError, notify, upload } from "../lib/api";
 import type { Upload } from "../lib/types";
 import Icon from "./Icon.vue";
@@ -24,6 +24,7 @@ type QueueItem = {
   error?: string;
   image?: Upload;
 };
+const uploadConcurrency = 2;
 const items = ref<QueueItem[]>([]);
 const busy = ref(false);
 const notice = ref("");
@@ -71,10 +72,10 @@ async function start() {
   const signal = controller.signal;
   busy.value = true;
   emit("uploading", true);
-  let succeeded = 0;
-  try {
-    for (const item of batch) {
-      if (signal.aborted) break;
+  let next = 0;
+  async function uploadNext() {
+    while (!signal.aborted && next < batch.length) {
+      const item = batch[next++]!;
       item.state = "uploading";
       item.percent = 0;
       item.error = undefined;
@@ -88,24 +89,39 @@ async function start() {
         if (signal.aborted) break;
         item.image = image;
         item.state = "done";
-        succeeded++;
-        emit("uploaded", image);
       } catch (e) {
         if (signal.aborted) break;
         item.state = "failed";
         item.error = errorMessage(e);
       }
     }
+  }
+  let succeeded = 0;
+  try {
+    await Promise.all(
+      Array.from(
+        { length: Math.min(uploadConcurrency, batch.length) },
+        uploadNext,
+      ),
+    );
+    if (signal.aborted) return;
+    // Gallery callers append images in selection order, even if uploads finish out of order.
+    const uploaded = batch.flatMap((item) => (item.image ? [item.image] : []));
+    for (const image of uploaded) {
+      if (signal.aborted) return;
+      emit("uploaded", image);
+      // Let the parent's v-model update before the next image is appended.
+      await nextTick();
+    }
+    succeeded = uploaded.length;
   } finally {
     controller = undefined;
     busy.value = false;
-    if (!signal.aborted) {
-      emit("uploading", false);
-      if (succeeded) {
-        emit("finished");
-        notify(`已上传 ${succeeded} 张图片`);
-      }
-    }
+    if (!signal.aborted) emit("uploading", false);
+  }
+  if (succeeded && !signal.aborted) {
+    emit("finished");
+    notify(`已上传 ${succeeded} 张图片`);
   }
 }
 onBeforeUnmount(() => controller?.abort());

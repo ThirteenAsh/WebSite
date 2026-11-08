@@ -77,7 +77,7 @@ async function copy(url: string) {
     await navigator.clipboard.writeText(url);
     notify("图片地址已复制");
   } catch {
-    void showError("复制失败，请打开原图后复制地址");
+    void showError("复制失败，请打开大图后复制地址");
   }
 }
 </script>

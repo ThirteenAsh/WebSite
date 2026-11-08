@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"image"
-	"image/gif"
-	"image/jpeg"
-	"image/png"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"os"
@@ -23,9 +23,13 @@ import (
 	"thirteenash/internal/model"
 )
 
-const maxImageBytes = 8 << 20
+const (
+	maxImageBytes   = 8 << 20
+	maxUploadBytes  = maxImageBytes + (1 << 20)
+	uploadImageMIME = "image/webp"
+)
 
-var imageFilename = regexp.MustCompile(`^[0-9a-f]{64}\.(jpg|png|gif)$`)
+var imageFilename = regexp.MustCompile(`^[0-9a-f]{64}\.(jpg|png|gif|webp)$`)
 var uploadKeyPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 const uploadColumns = "u.id,u.filename,u.original_name,u.mime_type,u.size_bytes,u.width,u.height,u.created_at,u.content_id"
@@ -63,8 +67,10 @@ func (a *Server) respondToUploadRetry(w http.ResponseWriter, r *http.Request, ke
 }
 
 func (a *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxImageBytes+(1<<20))
-	if e := r.ParseMultipartForm(maxImageBytes); e != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	// The multipart memory limit covers the entire bounded request, so the
+	// application does not spool source files to disk.
+	if e := r.ParseMultipartForm(maxUploadBytes); e != nil {
 		fail(w, 400, "图片上传失败，单张图片不能超过 8MB")
 		return
 	}
@@ -110,45 +116,38 @@ func (a *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "图片尺寸过大，最多 1600 万像素、单边不超过 8192")
 		return
 	}
-	var cleaned bytes.Buffer
-	ext := format
-	mime := "image/" + format
-	switch format {
-	case "jpeg":
-		img, err := jpeg.Decode(bytes.NewReader(raw))
-		if err != nil {
-			fail(w, 400, "图片已损坏")
-			return
-		}
-		e = jpeg.Encode(&cleaned, img, &jpeg.Options{Quality: 88})
-		ext = "jpg"
-	case "png":
-		img, err := png.Decode(bytes.NewReader(raw))
-		if err != nil {
-			fail(w, 400, "图片已损坏")
-			return
-		}
-		e = png.Encode(&cleaned, img)
-	case "gif":
-		// 动态 GIF 仅保留首帧，避免大量帧解码占用小内存服务器。
-		img, err := gif.Decode(bytes.NewReader(raw))
-		if err != nil {
-			fail(w, 400, "图片已损坏")
-			return
-		}
-		e = gif.Encode(&cleaned, img, nil)
+	ctx := r.Context()
+	select {
+	case imageEncodingSlot <- struct{}{}:
+		defer func() { <-imageEncodingSlot }()
+	case <-ctx.Done():
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	// image.Decode uses gif.Decode, which decodes only the first frame.
+	img, _, e := image.Decode(bytes.NewReader(raw))
+	if e != nil {
+		fail(w, 400, "图片已损坏")
+		return
+	}
+	cleaned, size, e := encodeUpload(ctx, img, format)
+	if ctx.Err() != nil {
+		return
 	}
 	if e != nil {
 		serverError(w, e)
 		return
 	}
-	if cleaned.Len() > maxImageBytes {
+	if len(cleaned) > maxImageBytes {
 		fail(w, 400, "处理后的图片超过 8MB，请压缩后重试")
 		return
 	}
-	name := randomToken() + "." + ext
+	name := randomToken() + ".webp"
 	path := filepath.Join(a.cfg.UploadDir, name)
-	if e = os.WriteFile(path, cleaned.Bytes(), 0640); e != nil {
+	if e = os.WriteFile(path, cleaned, 0640); e != nil {
+		_ = os.Remove(path)
 		serverError(w, e)
 		return
 	}
@@ -156,7 +155,7 @@ func (a *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 	if len([]rune(original)) > 200 {
 		original = string([]rune(original)[:200])
 	}
-	result, e := a.db.ExecContext(r.Context(), "INSERT INTO uploads(filename,original_name,mime_type,size_bytes,width,height,content_id,upload_key) VALUES(?,?,?,?,?,?,?,?)", name, original, mime, cleaned.Len(), cfg.Width, cfg.Height, contentID, uploadKey)
+	result, e := a.db.ExecContext(ctx, "INSERT INTO uploads(filename,original_name,mime_type,size_bytes,width,height,content_id,upload_key) VALUES(?,?,?,?,?,?,?,?)", name, original, uploadImageMIME, len(cleaned), size.X, size.Y, contentID, uploadKey)
 	if e != nil {
 		_ = os.Remove(path)
 		var mysqlErr *mysql.MySQLError
@@ -167,7 +166,7 @@ func (a *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := result.LastInsertId()
-	jsonResponse(w, 201, model.Upload{ID: id, Filename: name, OriginalName: original, MIME: mime, Size: int64(cleaned.Len()), Width: cfg.Width, Height: cfg.Height, CreatedAt: time.Now().UTC(), URL: "/uploads/" + name, ContentID: contentID})
+	jsonResponse(w, 201, model.Upload{ID: id, Filename: name, OriginalName: original, MIME: uploadImageMIME, Size: int64(len(cleaned)), Width: size.X, Height: size.Y, CreatedAt: time.Now().UTC(), URL: "/uploads/" + name, ContentID: contentID})
 }
 func (a *Server) listUploads(w http.ResponseWriter, r *http.Request) {
 	page := intQuery(r, "page", 1, 1, 100000)

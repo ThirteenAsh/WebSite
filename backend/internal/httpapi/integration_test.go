@@ -417,10 +417,21 @@ func TestIntegration(t *testing.T) {
 			t.Fatal(e)
 		}
 		saved, e := os.ReadFile(filepath.Join(app.cfg.UploadDir, uploaded.Filename))
-		if e != nil || bytes.Contains(saved, []byte("UNWANTED-METADATA")) {
-			t.Fatal("图片未被重新编码")
+		if e != nil || len(saved) < 12 || string(saved[:4]) != "RIFF" ||
+			string(saved[8:12]) != "WEBP" || bytes.Contains(saved, []byte("UNWANTED-METADATA")) {
+			t.Fatal("上传目录应保存重新编码后的 WebP")
 		}
-		request(visitor, "GET", uploaded.URL, nil, 200, "")
+		if !strings.HasSuffix(uploaded.URL, ".webp") || uploaded.MIME != "image/webp" ||
+			uploaded.Size != int64(len(saved)) || uploaded.Width != 4 || uploaded.Height != 4 {
+			t.Fatalf("上传结果应记录 WebP 成品的属性: %+v", uploaded)
+		}
+		files, err := os.ReadDir(app.cfg.UploadDir)
+		if err != nil || len(files) != 1 || files[0].Name() != uploaded.Filename {
+			t.Fatalf("上传目录应仅包含压缩成品: %v, %v", files, err)
+		}
+		if got := request(visitor, "GET", uploaded.URL, nil, 200, ""); !bytes.Equal(got, saved) {
+			t.Fatal("图片访问接口应返回 WebP 成品")
+		}
 		c := model.Content{Kind: "moment", Body: "短动态中文记录", Images: []string{uploaded.URL}, TechStack: []string{}, Status: "published"}
 		raw = request(admin, "POST", "/api/admin/contents", c, 201, csrf)
 		var created map[string]int64
@@ -429,6 +440,24 @@ func TestIntegration(t *testing.T) {
 		request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", created["id"]), nil, 200, csrf)
 		request(admin, "DELETE", fmt.Sprintf("/api/admin/uploads/%d", uploaded.ID), nil, 200, csrf)
 		request(visitor, "GET", uploaded.URL, nil, 404, "")
+
+		legacyName := randomToken() + ".png"
+		if err := os.WriteFile(filepath.Join(app.cfg.UploadDir, legacyName), pngData.Bytes(), 0640); err != nil {
+			t.Fatal(err)
+		}
+		result, err := db.Exec("INSERT INTO uploads(filename,original_name,mime_type,size_bytes,width,height) VALUES(?,?,?,?,?,?)",
+			legacyName, "旧图片.png", "image/png", pngData.Len(), 4, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := request(visitor, "GET", "/uploads/"+legacyName, nil, 200, ""); !bytes.Equal(got, pngData.Bytes()) {
+			t.Fatal("旧图片地址应仍可读取")
+		}
+		legacyID, err := result.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		request(admin, "DELETE", fmt.Sprintf("/api/admin/uploads/%d", legacyID), nil, 200, csrf)
 	})
 	t.Run("图片分类识别旧引用、首次保存归档、移动和重试", func(t *testing.T) {
 		var pngData bytes.Buffer
