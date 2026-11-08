@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { blankContent } from "../src/lib/types";
 
-async function fixture(page: Page) {
+async function fixture(page: Page, articleBody = "文章里的几张配图。") {
   const images = [
     "/viewer-fixture/landscape.svg",
     "/viewer-fixture/portrait.svg",
@@ -20,7 +20,7 @@ async function fixture(page: Page) {
     id: 42,
     title: "图片预览",
     status: "published",
-    body: "文章里的几张配图。",
+    body: articleBody,
     images,
   };
   const errors: string[] = [];
@@ -69,6 +69,38 @@ async function fixture(page: Page) {
   });
   return { images, errors };
 }
+
+test("文章正文图片可点击和键盘放大，带链接的图片保留链接", async ({ page }) => {
+  await fixture(
+    page,
+    "![第一张](/viewer-fixture/landscape.svg)\n\n" +
+      "![第二张](/viewer-fixture/portrait.svg)\n\n" +
+      "[![带链接的图片](/viewer-fixture/small.svg)](#target)",
+  );
+  await page.goto("/articles/42");
+  const first = page.getByRole("button", { name: "查看图片：第一张" });
+  const second = page.getByRole("button", { name: "查看图片：第二张" });
+  const viewer = page.getByRole("dialog", { name: "图片预览" });
+  await second.click();
+  await expect(viewer.getByRole("img")).toHaveAttribute(
+    "src",
+    /\/viewer-fixture\/portrait\.svg$/,
+  );
+  await viewer.getByRole("button", { name: "上一张图片" }).click();
+  await expect(viewer.getByRole("img")).toHaveAttribute(
+    "src",
+    /\/viewer-fixture\/landscape\.svg$/,
+  );
+  await page.keyboard.press("Escape");
+  await expect(second).toBeFocused();
+  await first.press("Space");
+  await expect(viewer).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(first).toBeFocused();
+  await page.getByRole("link", { name: "带链接的图片" }).click();
+  await expect(page).toHaveURL(/#target$/);
+  await expect(viewer).toBeHidden();
+});
 
 for (const variant of [
   {

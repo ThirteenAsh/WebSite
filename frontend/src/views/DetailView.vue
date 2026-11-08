@@ -127,7 +127,10 @@ async function share() {
       :alt="content.title"
     />
     <div class="detail-body" :class="{ 'paper-card': isProject }">
-      <MarkdownBody :source="content.body" />
+      <MarkdownBody
+        :source="content.body"
+        :preview-images="content.kind === 'article'"
+      />
       <p v-if="!content.body && !content.images.length" class="muted">
         更多内容，慢慢补上。
       </p>
