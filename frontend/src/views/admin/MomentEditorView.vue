@@ -252,7 +252,7 @@ onBeforeUnmount(() => {
           ? "保存后立即更新这条日常。"
           : "草稿仅自己可见。"
       }}
-      · Ctrl / ⌘ + S 保存
+      <span class="moment-editor-shortcut"> · Ctrl / ⌘ + S 保存</span>
     </p>
   </div>
 </template>
@@ -313,15 +313,42 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 760px) {
   .editor-heading {
-    align-items: flex-start;
-    flex-direction: column;
+    display: contents;
   }
   .editor-save-actions {
+    position: sticky;
+    top: 0;
+    z-index: 2;
     flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 0;
+    background: var(--bg);
+  }
+  .editor-save-actions > .btn {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+  .editor-save-actions > .text-link {
+    min-height: 44px;
   }
   .moment-composer {
-    margin-top: 24px;
-    padding: 20px;
+    margin-top: 8px;
+    padding: 14px;
+  }
+  .moment-composer textarea {
+    min-height: 150px;
+    height: clamp(150px, 30svh, 220px);
+    font-size: 16px;
+  }
+  .moment-composer-heading .text-link,
+  .moment-composer :deep(.moment-image-actions > button) {
+    min-height: 44px;
+  }
+  .moment-composer-preview {
+    overflow-wrap: anywhere;
+  }
+  .moment-editor-shortcut {
+    display: none;
   }
 }
 </style>

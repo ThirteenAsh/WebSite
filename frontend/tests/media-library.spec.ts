@@ -75,11 +75,15 @@ async function fixture(page: Page) {
     }
     if (pathname === "/api/admin/uploads") {
       const scope = searchParams.get("content_id");
+      const kind = searchParams.get("kind");
       const q = searchParams.get("q") || "";
       const page = Number(searchParams.get("page")) || 1;
       const items = state.uploads.filter(
         (image) =>
           (!scope || (image.content_id || 0) === Number(scope)) &&
+          (!kind ||
+            (image.content_id === 42 && kind === "article") ||
+            (image.content_id === 7 && kind === "project")) &&
           image.original_name.includes(q),
       );
       return route.fulfill({
@@ -90,6 +94,18 @@ async function fixture(page: Page) {
           pages: Math.ceil(items.length / 24),
         },
       });
+    }
+    const deletion = pathname.match(/^\/api\/admin\/uploads\/(\d+)$/);
+    if (deletion && request.method() === "DELETE") {
+      const id = Number(deletion[1]);
+      if (id === 2) {
+        return route.fulfill({
+          status: 409,
+          json: { error: "图片仍被内容引用" },
+        });
+      }
+      state.uploads = state.uploads.filter((image) => image.id !== id);
+      return route.fulfill({ json: { ok: true } });
     }
     const group = pathname.match(/^\/api\/admin\/uploads\/(\d+)\/group$/);
     if (group) {
@@ -244,6 +260,49 @@ test("选择器默认按当前文章找图，支持分页和大图，后台可�
   ]);
   await upload.getByRole("button", { name: "关闭图片选择" }).click();
   await expect(libraryFilter).toHaveText("小工具");
+});
+
+test("按内容类型筛选，批量归类和删除时保留被引用的图片", async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto("/admin/media");
+  const filter = page.getByRole("combobox", { name: "图片分类", exact: true });
+  await filter.click();
+  await page.getByRole("option", { name: "全部文章", exact: true }).click();
+  await expect(page.getByText("27 张图片", { exact: true })).toBeVisible();
+  await page
+    .getByRole("checkbox", { name: "选择 安装步骤-1.png", exact: true })
+    .check();
+  await page
+    .getByRole("checkbox", { name: "选择 安装步骤-2.png", exact: true })
+    .check();
+  await page.getByRole("button", { name: "批量归类" }).click();
+  const group = page.getByRole("dialog", { name: "图片归类" });
+  await expect(group.getByRole("button", { name: "保存分类" })).toBeDisabled();
+  await group.getByRole("combobox", { name: "归入分类" }).click();
+  await group.getByRole("combobox", { name: "搜索分类标题" }).fill("小工具");
+  await group.getByRole("option", { name: "小工具", exact: true }).click();
+  await group.getByRole("button", { name: "保存分类" }).click();
+  await expect(page.getByText("25 张图片", { exact: true })).toBeVisible();
+  await filter.click();
+  await page.getByRole("combobox", { name: "搜索分类标题" }).fill("全部作品");
+  await page.getByRole("option", { name: "全部作品", exact: true }).click();
+  await expect(page.getByText("3 张图片", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "全选本页" }).click();
+  await expect(page.getByText("已选 3 张", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "批量删除" }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "确认删除" })
+    .click();
+  await expect(
+    page.getByRole("alertdialog", { name: "图片删除未完成" }),
+  ).toContainText("图片仍被内容引用");
+  await page.getByRole("button", { name: "我知道了" }).click();
+  await expect(page.getByText("已选 1 张", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: "选择 安装步骤-2.png", exact: true }),
+  ).toBeChecked();
+  expect(state.uploads.some((image) => image.id === 1)).toBe(false);
 });
 
 test("长分类标题时图片归类弹窗完整显示保存按钮", async ({ page }) => {

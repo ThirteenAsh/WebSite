@@ -175,6 +175,15 @@ func (a *Server) listUploads(w http.ResponseWriter, r *http.Request) {
 	args := []any{}
 	switch group := r.URL.Query().Get("content_id"); group {
 	case "":
+		switch kind := r.URL.Query().Get("kind"); kind {
+		case "":
+		case "article", "project", "moment":
+			where = "(u.content_id IN (SELECT id FROM contents WHERE kind=?) OR EXISTS (SELECT 1 FROM contents c WHERE c.kind=? AND " + uploadReference + "))"
+			args = append(args, kind, kind)
+		default:
+			fail(w, 400, "图片分类无效")
+			return
+		}
 	case "0":
 		where = "u.content_id IS NULL AND NOT EXISTS (SELECT 1 FROM contents c WHERE " + uploadReference + ")"
 	default:

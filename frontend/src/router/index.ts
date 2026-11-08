@@ -126,12 +126,12 @@ const router = createRouter({
         {
           path: "moments/new",
           component: MomentEditorView,
-          meta: { title: "记录日常", section: "moments" },
+          meta: { title: "记录日常", section: "moments", momentEditor: true },
         },
         {
           path: "moments/:id",
           component: MomentEditorView,
-          meta: { title: "编辑日常", section: "moments" },
+          meta: { title: "编辑日常", section: "moments", momentEditor: true },
         },
         {
           path: "github",

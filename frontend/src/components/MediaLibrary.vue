@@ -36,7 +36,8 @@ async function load(page = 1) {
   loading.value = true;
   error.value = "";
   const params = new URLSearchParams({ page: String(page) });
-  if (scope.value) params.set("content_id", scope.value);
+  if (scope.value.startsWith("kind:")) params.set("kind", scope.value.slice(5));
+  else if (scope.value) params.set("content_id", scope.value);
   if (query.value) params.set("q", query.value);
   try {
     const next = await api<Page<Upload>>(`/admin/uploads?${params}`);
@@ -91,6 +92,7 @@ defineExpose({ groups, result, load });
         <Icon name="search" :size="16" />搜索
       </button>
     </form>
+    <slot name="toolbar" :items="loading || error ? [] : result.items" />
     <p v-if="groupError" class="muted small-text">
       分类暂时无法读取。<button
         type="button"

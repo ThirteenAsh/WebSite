@@ -510,6 +510,8 @@ func TestIntegration(t *testing.T) {
 		secondQuery := fmt.Sprintf("content_id=%d", second)
 		assertUploads(firstQuery, pending.ID, legacy.ID)
 		assertUploads(secondQuery, legacy.ID)
+		assertUploads("kind=article", pending.ID, legacy.ID)
+		assertUploads("kind=project")
 		assertUploads("content_id=0")
 		assertUploads(firstQuery+"&q=100%25", legacy.ID)
 		assertUploads(firstQuery + "&q=%5F")

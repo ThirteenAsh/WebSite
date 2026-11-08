@@ -26,8 +26,17 @@ const options = computed(() => {
   ];
   return [
     ...common,
-    ...sections.flatMap((section) =>
-      props.groups
+    ...sections.flatMap((section) => [
+      ...(props.all
+        ? [
+            {
+              value: `kind:${section.kind}`,
+              label: `全部${section.label}`,
+              group: section.label,
+            },
+          ]
+        : []),
+      ...props.groups
         .filter((group) => group.kind === section.kind)
         .map((group) => ({
           value: String(group.id),
@@ -35,7 +44,7 @@ const options = computed(() => {
             group.title || `${formatDate(group.created_at)} 日常 #${group.id}`,
           group: section.label,
         })),
-    ),
+    ]),
   ];
 });
 </script>

@@ -43,7 +43,10 @@ async function logout() {
 <template>
   <div
     class="admin-shell"
-    :class="{ 'admin-shell--moments': route.meta.section === 'moments' }"
+    :class="{
+      'admin-shell--moments': route.meta.section === 'moments',
+      'admin-shell--moment-editor': route.meta.momentEditor,
+    }"
   >
     <aside class="admin-sidebar">
       <RouterLink to="/admin" class="admin-brand"
@@ -62,8 +65,7 @@ async function logout() {
                 ? route.path === '/admin'
                 : route.path.startsWith(item.path),
           }"
-          ><Icon :name="item.icon" />{{ item.label
-          }}</RouterLink
+          ><Icon :name="item.icon" />{{ item.label }}</RouterLink
         >
       </nav>
       <div class="sidebar-bottom">
@@ -129,6 +131,14 @@ async function logout() {
   }
   .admin-shell--moments :deep(.admin-filters) {
     flex-wrap: wrap;
+  }
+}
+@media (max-width: 760px) {
+  .admin-shell--moment-editor .admin-sidebar {
+    display: none;
+  }
+  .admin-shell--moment-editor .admin-main {
+    padding: 14px 14px max(24px, env(safe-area-inset-bottom));
   }
 }
 </style>

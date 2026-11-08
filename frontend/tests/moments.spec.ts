@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { blankContent, type Content } from "../src/lib/types";
 
-async function fixture(page: Page) {
+async function fixture(page: Page, signedIn = true) {
   const images = Array.from(
     { length: 9 },
     (_, i) => `/avatar.jpg?image=${i + 1}`,
@@ -44,9 +44,13 @@ async function fixture(page: Page) {
     const request = route.request(),
       url = new URL(request.url()),
       path = url.pathname;
-    if (path === "/api/admin/me")
+    if (path === "/api/admin/login") signedIn = true;
+    if (path === "/api/admin/login" || path === "/api/admin/me")
       return route.fulfill({
-        json: { username: "tester", csrf_token: "fixture" },
+        status: signedIn ? 200 : 401,
+        json: signedIn
+          ? { username: "tester", csrf_token: "fixture" }
+          : { error: "请先登录" },
       });
     if (path === "/api/site")
       return route.fulfill({
@@ -132,6 +136,64 @@ async function fixture(page: Page) {
   });
   return state;
 }
+
+test.describe("手机快捷发布", () => {
+  test.use({
+    viewport: { width: 320, height: 568 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test("窄屏登录后直达日常，上传图片后可以发布", async ({ page }) => {
+    const state = await fixture(page, false);
+    await page.goto("/admin/login");
+    const quickLogin = page.getByRole("button", { name: "登录并写日常" });
+    await expect(quickLogin).toBeInViewport({ ratio: 1 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(320);
+    await page.getByLabel("管理员账号").fill("tester");
+    await page.getByLabel("密码", { exact: true }).fill("fixture-password");
+    await quickLogin.tap();
+    await expect(page).toHaveURL(/\/admin\/moments\/new$/);
+
+    await page.getByLabel("Markdown 配文").fill("在外面记录的一条日常");
+    await page.getByRole("button", { name: "上传图片", exact: true }).tap();
+    const upload = page.getByRole("dialog", { name: "上传图片", exact: true });
+    await expect(upload).toBeInViewport({ ratio: 1 });
+    await upload.getByLabel("选择图片文件").setInputFiles("public/avatar.jpg");
+    await upload.getByRole("button", { name: "开始上传", exact: true }).tap();
+    await expect(upload.getByText("上传完成", { exact: true })).toBeVisible();
+    await upload.getByRole("button", { name: "关闭图片选择" }).tap();
+    await expect(page.locator(".moment-edit-grid img")).toHaveCount(1);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(320);
+    await page.evaluate(() =>
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: "instant",
+      }),
+    );
+    const publish = page.getByRole("button", { name: "发布日常", exact: true });
+    await expect(publish).toBeInViewport({ ratio: 1 });
+    await publish.tap();
+    await expect(page).toHaveURL(/\/admin\/moments\/99$/);
+    expect(state.saved[0]).toMatchObject({
+      kind: "moment",
+      status: "published",
+      body: "在外面记录的一条日常",
+      images: ["/avatar.jpg?uploaded=1"],
+    });
+    await expect(page.getByRole("link", { name: "查看日常" })).toHaveAttribute(
+      "href",
+      "/moments/99",
+    );
+    await page.goto("/admin/login");
+    await expect(page).toHaveURL(/\/admin\/moments\/new$/);
+    expect(state.errors).toEqual([]);
+  });
+});
 
 test("文章与日常独立，0/1/4/9 张图片、Markdown、旧链接和手机深色显示", async ({
   page,
