@@ -13,10 +13,7 @@ func DefaultSiteSettings() SiteSettings {
 		GitHubUsername: "ThirteenAsh",
 		GitHubURL:      "https://github.com/ThirteenAsh",
 		Skills:         []string{"Java / Spring", "Vue / TypeScript", "Rust / Tauri", "Python / AI"},
-		CopyrightText:  "bytecraft.com.cn",
-		ICPNumber:      "陕ICP备2025084108号-1",
-		ICPURL:         "https://beian.miit.gov.cn/",
-		PoliceNumber:   "陕公网安备 61012502000363号",
-		PoliceURL:      "https://beian.mps.gov.cn/#/query/webSearch?code=61012502000363",
+		ICPVisible:     true,
+		PoliceVisible:  true,
 	}
 }

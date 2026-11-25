@@ -14,8 +14,10 @@ const settings: SiteSettings = {
   skills: [],
   copyright_text: "bytecraft.com.cn",
   icp_number: "",
+  icp_visible: true,
   icp_url: "",
   police_number: "",
+  police_visible: true,
   police_url: "",
 };
 const siteResponse = { settings, counts: { projects: 0, writings: 0 } };

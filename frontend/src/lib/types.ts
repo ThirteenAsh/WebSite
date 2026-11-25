@@ -50,8 +50,10 @@ export interface SiteSettings {
   skills: string[];
   copyright_text: string;
   icp_number: string;
+  icp_visible: boolean;
   icp_url: string;
   police_number: string;
+  police_visible: boolean;
   police_url: string;
 }
 export interface SiteCounts {

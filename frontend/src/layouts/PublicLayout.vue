@@ -233,13 +233,19 @@ watch(
         ><a href="#main-content">回到顶部 ↑</a>
       </div>
       <nav
-        v-if="site.settings?.icp_number || site.settings?.police_number"
+        v-if="
+          (site.settings?.icp_visible !== false && site.settings?.icp_number) ||
+          (site.settings?.police_visible !== false &&
+            site.settings?.police_number)
+        "
         class="footer-registration"
         aria-label="网站备案信息"
       >
         <component
           :is="site.settings?.icp_url ? 'a' : 'span'"
-          v-if="site.settings?.icp_number"
+          v-if="
+            site.settings?.icp_visible !== false && site.settings?.icp_number
+          "
           class="footer-registration-item"
           :href="site.settings.icp_url || undefined"
           :target="site.settings.icp_url ? '_blank' : undefined"
@@ -248,7 +254,10 @@ watch(
         >
         <component
           :is="site.settings?.police_url ? 'a' : 'span'"
-          v-if="site.settings?.police_number"
+          v-if="
+            site.settings?.police_visible !== false &&
+            site.settings?.police_number
+          "
           class="footer-registration-item"
           :href="site.settings.police_url || undefined"
           :target="site.settings.police_url ? '_blank' : undefined"

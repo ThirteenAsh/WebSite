@@ -16,8 +16,10 @@ async function fixture(page: Page) {
       skills: [],
       copyright_text: "bytecraft.com.cn",
       icp_number: "陕ICP备2025084108号-1",
+      icp_visible: true,
       icp_url: "https://beian.miit.gov.cn/",
       police_number: "陕公网安备 61012502000363号",
+      police_visible: true,
       police_url:
         "https://beian.mps.gov.cn/#/query/webSearch?code=61012502000363",
     } as SiteSettings,
@@ -61,6 +63,94 @@ async function fixture(page: Page) {
   });
   return state;
 }
+
+test("隐藏备案保留自定义信息，刷新后可重新开启", async ({ page }) => {
+  const state = await fixture(page);
+  state.settings.police_number = "自定义公安备案 123456号";
+  state.settings.police_url = "https://example.com/police";
+  await page.goto("/admin/settings");
+  await page.getByLabel("显示公安备案", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "保存设置", exact: true }).click();
+  await expect(page.locator(".toast")).toContainText("站点设置已保存");
+  await page.goto("/projects");
+  await expect(page.locator(".footer-registration")).toContainText(
+    state.settings.icp_number,
+  );
+  await expect(page.locator(".site-footer")).not.toContainText(
+    state.settings.police_number,
+  );
+  await page.goto("/admin/settings");
+  await expect(
+    page.getByLabel("显示公安备案", { exact: true }),
+  ).not.toBeChecked();
+  await expect(page.getByLabel("公安备案号", { exact: true })).toHaveValue(
+    "自定义公安备案 123456号",
+  );
+  await expect(page.getByLabel("公安备案链接", { exact: true })).toHaveValue(
+    "https://example.com/police",
+  );
+  await page.getByLabel("显示公安备案", { exact: true }).check();
+  await page.getByLabel("显示 ICP 备案", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "保存设置", exact: true }).click();
+  await expect(page.locator(".toast")).toContainText("站点设置已保存");
+  await page.goto("/projects");
+  await expect(
+    page.getByRole("link", { name: "自定义公安备案 123456号" }),
+  ).toHaveAttribute("href", "https://example.com/police");
+  await expect(page.locator(".site-footer")).not.toContainText(
+    state.settings.icp_number,
+  );
+  expect(state.settings.icp_number).toBe("陕ICP备2025084108号-1");
+  expect(state.errors).toEqual([]);
+});
+
+test("勾选框与文字对齐，页脚输入无默认提示且清空后持久保持空白", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  await page.goto("/admin/settings");
+  const panel = page
+    .locator(".settings-panel")
+    .filter({ has: page.getByRole("heading", { name: "页脚与备案信息" }) });
+  await expect(panel.getByRole("button", { name: /恢复默认/ })).toHaveCount(0);
+  for (const label of [
+    "版权文字",
+    "ICP备案号",
+    "ICP备案链接",
+    "公安备案号",
+    "公安备案链接",
+  ]) {
+    const input = page.getByLabel(label, { exact: true });
+    expect(await input.getAttribute("placeholder")).toBeNull();
+    await input.fill("");
+  }
+  for (const label of ["显示 ICP 备案", "显示公安备案"]) {
+    const checkbox = page.getByLabel(label, { exact: true });
+    const alignment = await checkbox.evaluate((input) => {
+      const box = input.getBoundingClientRect();
+      const text = input
+        .parentElement!.querySelector("span")!
+        .getBoundingClientRect();
+      return {
+        centerOffset: Math.abs(
+          box.y + box.height / 2 - text.y - text.height / 2,
+        ),
+        gap: text.x - box.right,
+      };
+    });
+    expect(alignment.centerOffset).toBeLessThan(1);
+    expect(alignment.gap).toBeGreaterThanOrEqual(7);
+  }
+  await page.getByRole("button", { name: "保存设置", exact: true }).click();
+  await expect(page.locator(".toast")).toContainText("站点设置已保存");
+  await page.reload();
+  await expect(page.getByLabel("公安备案号", { exact: true })).toHaveValue("");
+  await expect(panel.locator("input[placeholder]")).toHaveCount(0);
+  await panel.screenshot({ path: "../.local/footer-toggle-alignment.png" });
+  expect(state.settings.icp_number).toBe("");
+  expect(state.settings.police_url).toBe("");
+  expect(state.errors).toEqual([]);
+});
 
 test("后台修改版权与备案文字、链接后，刷新及公开页正确显示", async ({
   page,

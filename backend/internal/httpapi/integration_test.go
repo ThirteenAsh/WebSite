@@ -851,7 +851,7 @@ func TestIntegration(t *testing.T) {
 				t.Error(err)
 			}
 		}()
-		// 升级前的设置没有页脚字段，应沿用原页面显示的版权和备案信息。
+		// 缺少页脚字段时保持空白，不再填入硬编码的版权或备案信息。
 		if _, err := db.Exec("UPDATE settings SET payload=JSON_REMOVE(payload,'$.copyright_text','$.icp_number','$.icp_url','$.police_number','$.police_url') WHERE id=1"); err != nil {
 			t.Fatal(err)
 		}
@@ -874,9 +874,8 @@ func TestIntegration(t *testing.T) {
 			return settings
 		}
 		s := readSettings("/api/admin/settings")
-		defaults := model.DefaultSiteSettings()
-		if s.CopyrightText != defaults.CopyrightText || s.ICPNumber != defaults.ICPNumber || s.ICPURL != defaults.ICPURL || s.PoliceNumber != defaults.PoliceNumber || s.PoliceURL != defaults.PoliceURL || s.Name != original.Name || s.Intro != original.Intro {
-			t.Fatalf("旧设置默认值无效或改变了已有文案: %+v", s)
+		if s.CopyrightText != "" || s.ICPNumber != "" || s.ICPURL != "" || s.PoliceNumber != "" || s.PoliceURL != "" || s.Name != original.Name || s.Intro != original.Intro {
+			t.Fatalf("缺失的页脚字段未保持空白或改变了已有文案: %+v", s)
 		}
 		s.CopyrightText = "  example.com  "
 		s.ICPNumber = " 测ICP备123456号-2 "
@@ -885,10 +884,22 @@ func TestIntegration(t *testing.T) {
 		s.PoliceURL = " https://beian.mps.gov.cn/#/query/webSearch?code=12345678901234 "
 		request(admin, "PUT", "/api/admin/settings", s, 200, csrf)
 		s = readSettings("/api/site")
+		if !s.ICPVisible || !s.PoliceVisible {
+			t.Fatal("旧设置应默认显示已有备案信息")
+		}
+		// 隐藏和恢复均保留用户填写的编号与链接。
+		for _, visible := range []bool{false, true, false} {
+			s.ICPVisible, s.PoliceVisible = visible, visible
+			request(admin, "PUT", "/api/admin/settings", s, 200, csrf)
+			got := readSettings("/api/site")
+			if got.ICPVisible != visible || got.PoliceVisible != visible || got.ICPNumber != s.ICPNumber || got.PoliceNumber != s.PoliceNumber || got.ICPURL != s.ICPURL || got.PoliceURL != s.PoliceURL {
+				t.Fatal("切换显示时丢失了备案信息")
+			}
+		}
 		if s.CopyrightText != "example.com" || s.ICPNumber != "测ICP备123456号-2" || s.PoliceNumber != "测公网安备 12345678901234号" || s.ICPURL != strings.TrimSpace(s.ICPURL) || s.PoliceURL != strings.TrimSpace(s.PoliceURL) {
 			t.Fatalf("页脚设置未公开或未规范化: %+v", s)
 		}
-		fields := []string{"copyright_text", "icp_number", "icp_url", "police_number", "police_url"}
+		fields := []string{"copyright_text", "icp_number", "icp_url", "police_number", "police_url", "icp_visible", "police_visible"}
 		raw, _ := json.Marshal(s)
 		var oldClient map[string]any
 		_ = json.Unmarshal(raw, &oldClient)

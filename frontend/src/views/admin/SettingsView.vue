@@ -18,7 +18,12 @@ const settings = ref<SiteSettings>(),
 async function load() {
   error.value = "";
   try {
-    settings.value = await api<SiteSettings>("/admin/settings");
+    const data = await api<SiteSettings>("/admin/settings");
+    settings.value = {
+      ...data,
+      icp_visible: data.icp_visible ?? true,
+      police_visible: data.police_visible ?? true,
+    };
     skills.value = settings.value.skills.join("\n");
   } catch (e) {
     error.value = errorMessage(e);
@@ -26,7 +31,7 @@ async function load() {
   }
 }
 async function save() {
-  if (!settings.value) return;
+  if (!settings.value || busy.value) return;
   busy.value = true;
   try {
     settings.value.skills = skills.value
@@ -133,41 +138,47 @@ onMounted(load);
       <section class="admin-panel settings-panel">
         <h2>页脚与备案信息</h2>
         <label
-          >版权文字<input
-            v-model="settings.copyright_text"
-            maxlength="200"
-            placeholder="bytecraft.com.cn"
+          >版权文字<input v-model="settings.copyright_text" maxlength="200"
         /></label>
+        <div class="registration-controls">
+          <label class="checkbox-label"
+            ><input v-model="settings.icp_visible" type="checkbox" /><span
+              >显示 ICP 备案</span
+            ></label
+          >
+        </div>
         <div class="form-row">
           <label
-            >ICP备案号<input
-              v-model="settings.icp_number"
-              maxlength="200"
-              placeholder="陕ICP备2025084108号-1"
+            >ICP备案号<input v-model="settings.icp_number" maxlength="200"
           /></label>
           <label
             >ICP备案链接<input
               v-model="settings.icp_url"
               type="url"
               maxlength="1000"
-              placeholder="https://beian.miit.gov.cn/"
           /></label>
+        </div>
+        <div class="registration-controls">
+          <label class="checkbox-label"
+            ><input v-model="settings.police_visible" type="checkbox" /><span
+              >显示公安备案</span
+            ></label
+          >
         </div>
         <div class="form-row">
           <label
-            >公安备案号<input
-              v-model="settings.police_number"
-              maxlength="200"
-              placeholder="陕公网安备 61012502000363号"
+            >公安备案号<input v-model="settings.police_number" maxlength="200"
           /></label>
           <label
             >公安备案链接<input
               v-model="settings.police_url"
               type="url"
               maxlength="1000"
-              placeholder="https://beian.mps.gov.cn/#/query/webSearch?code=61012502000363"
           /></label>
         </div>
+        <p class="muted small-text">
+          关闭显示会保留备案号和链接，再开启即可恢复；修改后请保存设置。
+        </p>
       </section>
       <section class="admin-panel settings-panel">
         <h2>GitHub 关联</h2>
@@ -229,3 +240,26 @@ onMounted(load);
     </aside>
   </div>
 </template>
+
+<style scoped>
+.registration-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.registration-controls .checkbox-label {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.5;
+}
+.registration-controls input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  flex-shrink: 0;
+}
+</style>

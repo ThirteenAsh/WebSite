@@ -17,8 +17,10 @@ type SiteSettings struct {
 	Skills         []string `json:"skills"`
 	CopyrightText  string   `json:"copyright_text"`
 	ICPNumber      string   `json:"icp_number"`
+	ICPVisible     bool     `json:"icp_visible"`
 	ICPURL         string   `json:"icp_url"`
 	PoliceNumber   string   `json:"police_number"`
+	PoliceVisible  bool     `json:"police_visible"`
 	PoliceURL      string   `json:"police_url"`
 }
 
