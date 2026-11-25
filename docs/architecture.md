@@ -88,6 +88,7 @@ scripts/
 | `PUT /admin/password` | 修改密码、注销全部会话 |
 | `GET /admin/dashboard` | 内容状态与互动统计、上次同步结果 |
 | `GET/POST /admin/contents` | 管理列表、新建内容 |
+| `PUT /admin/projects/order` | `{ "ids": [...] }` 保存本页或筛选后的作品顺序；事务内仅重排这些作品的位置，其他作品保留位置 |
 | `GET/PUT/DELETE /admin/contents/{id}` | 读取/编辑/删除；发布和撤回均通过 PUT 的 status 字段 |
 | `GET/PUT /admin/settings` | 读取和修改站点信息 |
 | `GET /admin/github/repos` | 用户公开仓库及导入状态 |

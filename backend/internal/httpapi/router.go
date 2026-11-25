@@ -37,6 +37,7 @@ func (a *Server) Handler() http.Handler {
 	mux.Handle("GET /api/admin/dashboard", a.auth(http.HandlerFunc(a.dashboard)))
 	mux.Handle("GET /api/admin/contents", a.auth(http.HandlerFunc(a.listAdmin)))
 	mux.Handle("POST /api/admin/contents", a.auth(http.HandlerFunc(a.createContent)))
+	mux.Handle("PUT /api/admin/projects/order", a.auth(http.HandlerFunc(a.reorderProjects)))
 	mux.Handle("GET /api/admin/contents/{id}", a.auth(http.HandlerFunc(a.getAdmin)))
 	mux.Handle("PUT /api/admin/contents/{id}", a.auth(http.HandlerFunc(a.updateContent)))
 	mux.Handle("DELETE /api/admin/contents/{id}", a.auth(http.HandlerFunc(a.deleteContent)))

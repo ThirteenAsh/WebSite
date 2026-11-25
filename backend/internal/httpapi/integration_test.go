@@ -156,6 +156,7 @@ func TestIntegration(t *testing.T) {
 	var contentID int64
 	t.Run("认证及跨站请求", func(t *testing.T) {
 		request(admin, "GET", "/api/admin/contents", nil, 401, "")
+		request(visitor, "PUT", "/api/admin/projects/order", map[string]any{"ids": []int64{1, 2}}, 401, "")
 		request(admin, "POST", "/api/admin/login", map[string]string{"username": "tester", "password": "wrong"}, 401, "")
 		raw := request(admin, "POST", "/api/admin/login", map[string]string{"username": "tester", "password": "test-password-2026"}, 200, "")
 		var result map[string]string
@@ -165,6 +166,7 @@ func TestIntegration(t *testing.T) {
 			t.Fatal("缺少CSRF token")
 		}
 		request(admin, "POST", "/api/admin/contents", map[string]any{}, 403, "")
+		request(admin, "PUT", "/api/admin/projects/order", map[string]any{"ids": []int64{1, 2}}, 403, "")
 		req, _ := http.NewRequest("POST", server.URL+"/api/visitor", nil)
 		req.Header.Set("Origin", "https://evil.example")
 		resp, e := visitor.Do(req)
@@ -728,6 +730,114 @@ func TestIntegration(t *testing.T) {
 				t.Fatal("多项主要语言未完整保存")
 			}
 			request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", saved.ID), nil, 200, csrf)
+		}
+	})
+	t.Run("作品拖动排序与公开顺序一致且只修改顺序", func(t *testing.T) {
+		ids := []int64{}
+		for i, kind := range []string{"project", "project", "project", "project", "article"} {
+			c := model.Content{Kind: kind, Title: fmt.Sprintf("拖动排序验收 %d", i), Summary: "原有摘要", Body: "完整正文", Status: "published", Featured: i%2 == 0, SortOrder: 100}
+			if i == 1 {
+				c.Status = "draft"
+			}
+			var saved struct {
+				ID int64 `json:"id"`
+			}
+			if err := json.Unmarshal(request(admin, "POST", "/api/admin/contents", c, 201, csrf), &saved); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, saved.ID)
+			defer request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", saved.ID), nil, 200, csrf)
+		}
+		list := func(path string) []model.Content {
+			t.Helper()
+			var result struct {
+				Items []model.Content `json:"items"`
+			}
+			if err := json.Unmarshal(request(admin, "GET", path, nil, 200, csrf), &result); err != nil {
+				t.Fatal(err)
+			}
+			return result.Items
+		}
+		listIDs := func(items []model.Content) []int64 {
+			result := []int64{}
+			for _, item := range items {
+				result = append(result, item.ID)
+			}
+			return result
+		}
+		path := "/api/admin/contents?kind=project&limit=100"
+		original := list(path)
+		expected := listIDs(original)
+		// 调整不相邻的两件作品，兼容精选、搜索和分页后的部分列表。
+		selected := []int64{expected[len(expected)-1], expected[0]}
+		expected[0], expected[len(expected)-1] = selected[0], selected[1]
+		before := map[int64]model.Content{}
+		for _, item := range original {
+			if err := json.Unmarshal(request(admin, "GET", fmt.Sprintf("/api/admin/contents/%d", item.ID), nil, 200, csrf), &item); err != nil {
+				t.Fatal(err)
+			}
+			before[item.ID] = item
+		}
+		var saved struct {
+			Items []projectPosition `json:"items"`
+		}
+		if err := json.Unmarshal(request(admin, "PUT", "/api/admin/projects/order", map[string]any{"ids": selected}, 200, csrf), &saved); err != nil {
+			t.Fatal(err)
+		}
+		if len(saved.Items) != 2 || saved.Items[0].ID != selected[0] || saved.Items[0].SortOrder != 0 || saved.Items[1].ID != selected[1] || saved.Items[1].SortOrder != len(expected)-1 {
+			t.Fatalf("排序响应无效: %+v", saved.Items)
+		}
+		after := list(path)
+		if !slices.Equal(listIDs(after), expected) {
+			t.Fatalf("后台顺序无效: %v，期望 %v", listIDs(after), expected)
+		}
+		for i, item := range after {
+			if item.SortOrder != i {
+				t.Fatalf("排序未规范化: %+v", item)
+			}
+			var full model.Content
+			if err := json.Unmarshal(request(admin, "GET", fmt.Sprintf("/api/admin/contents/%d", item.ID), nil, 200, csrf), &full); err != nil {
+				t.Fatal(err)
+			}
+			full.SortOrder = before[item.ID].SortOrder
+			oldJSON, _ := json.Marshal(before[item.ID])
+			newJSON, _ := json.Marshal(full)
+			if !bytes.Equal(oldJSON, newJSON) {
+				t.Fatalf("排序修改了作品其他字段: %s -> %s", oldJSON, newJSON)
+			}
+		}
+		for _, featured := range []bool{false, true} {
+			publicPath := "/api/contents?kind=project&limit=100"
+			want := []int64{}
+			if featured {
+				publicPath += "&featured=1"
+			}
+			for _, item := range after {
+				if item.Status == "published" && (!featured || item.Featured) {
+					want = append(want, item.ID)
+				}
+			}
+			if got := listIDs(list(publicPath)); !slices.Equal(got, want) {
+				t.Fatalf("公开顺序与后台不一致: %v，期望 %v", got, want)
+			}
+		}
+		for _, invalid := range []struct {
+			ids  []int64
+			code int
+		}{
+			{nil, 400}, {[]int64{ids[0]}, 400}, {[]int64{ids[0], ids[0]}, 400},
+			{[]int64{ids[0], -1}, 400}, {make([]int64, 101), 400},
+			{[]int64{ids[0], ids[4]}, 404}, {[]int64{ids[0], 999999999}, 404},
+		} {
+			request(admin, "PUT", "/api/admin/projects/order", map[string]any{"ids": invalid.ids}, invalid.code, csrf)
+			if !slices.Equal(listIDs(list(path)), expected) {
+				t.Fatal("无效请求改变了作品顺序")
+			}
+		}
+		// 再次提交相同顺序保持幂等。
+		request(admin, "PUT", "/api/admin/projects/order", map[string]any{"ids": selected}, 200, csrf)
+		if !slices.Equal(listIDs(list(path)), expected) {
+			t.Fatal("重复提交改变了顺序")
 		}
 	})
 	t.Run("设置保存及密码会话撤销", func(t *testing.T) {

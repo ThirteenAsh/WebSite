@@ -13,6 +13,8 @@ import (
 	"thirteenash/internal/repository"
 )
 
+const projectOrder = "sort_order ASC,published_at DESC,id DESC"
+
 func (a *Server) publicSite(w http.ResponseWriter, r *http.Request) {
 	s, e := a.settings(r.Context())
 	if e != nil {
@@ -72,7 +74,7 @@ func (a *Server) listContents(w http.ResponseWriter, r *http.Request, admin bool
 	limit := intQuery(r, "limit", 12, 1, 100)
 	order := "published_at DESC,id DESC"
 	if r.URL.Query().Get("kind") == "project" {
-		order = "sort_order ASC,published_at DESC,id DESC"
+		order = projectOrder
 	} else if admin {
 		order = "updated_at DESC,id DESC"
 	}

@@ -216,7 +216,7 @@ watch(
     <footer class="site-footer wrap">
       <div>
         <strong>{{ site.settings?.name || "ThirteenAsh" }}</strong
-        ><span>© {{ new Date().getFullYear() }} · bytecraft.xin</span>
+        ><span>© {{ new Date().getFullYear() }} · bytecraft.com.cn</span>
       </div>
       <div class="footer-links">
         <a

@@ -34,7 +34,7 @@ const bodyPreview = computed(
 <template>
   <article v-if="content.kind === 'project'" class="project-card paper-card">
     <aside class="project-date">
-      <strong>项目 {{ String(content.id).padStart(2, "0") }}</strong>
+      <strong>项目 {{ String((index ?? 0) + 1).padStart(2, "0") }}</strong>
       <span>{{ repo.updated_at ? "仓库更新" : "发布于" }}</span>
       <time :datetime="repo.updated_at || content.published_at || undefined">{{
         formatDate(repo.updated_at || content.published_at)

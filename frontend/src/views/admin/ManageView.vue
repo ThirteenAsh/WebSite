@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, notify, errorMessage } from "../../lib/api";
 import { confirmAction, showError } from "../../lib/dialogs";
@@ -45,9 +45,19 @@ const isGitHub = computed(
   () => isProject.value && route.query.view === "github",
 );
 const result = ref<Page<Content>>({ items: [], total: 0, page: 1, pages: 0 });
+const savingOrder = ref(false),
+  dragged = ref<number | null>(null),
+  dropIndex = ref(-1);
+const locked = computed(
+  () => loading.value || savingOrder.value || busy.value !== 0,
+);
+const draggedIndex = computed(() =>
+  result.value.items.findIndex((item) => item.id === dragged.value),
+);
 let request = 0;
 async function load() {
   const id = ++request;
+  endDrag();
   if (isGitHub.value) {
     loading.value = false;
     error.value = "";
@@ -91,8 +101,93 @@ function filter() {
   });
 }
 watch(() => route.fullPath, load, { immediate: true });
+function endDrag() {
+  dragged.value = null;
+  dropIndex.value = -1;
+}
+function startDrag(event: DragEvent, c: Content) {
+  if (locked.value || !isProject.value) {
+    event.preventDefault();
+    return;
+  }
+  dragged.value = c.id;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(c.id));
+  }
+}
+function dragOver(event: DragEvent, index: number) {
+  if (dragged.value === null || locked.value) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  dropIndex.value = index;
+}
+function drop(event: DragEvent, index: number) {
+  if (dragged.value === null) return;
+  event.preventDefault();
+  const from = draggedIndex.value;
+  endDrag();
+  void moveProject(from, index);
+}
+async function moveProject(from: number, to: number) {
+  if (
+    !isProject.value ||
+    locked.value ||
+    from === to ||
+    from < 0 ||
+    to < 0 ||
+    from >= result.value.items.length ||
+    to >= result.value.items.length
+  )
+    return;
+  const currentRequest = request;
+  const focused = document.activeElement as HTMLElement | null;
+  const previous = result.value.items;
+  const items = [...previous];
+  const [moved] = items.splice(from, 1);
+  items.splice(to, 0, moved!);
+  result.value.items = items;
+  savingOrder.value = true;
+  try {
+    const saved = await api<{ items: Pick<Content, "id" | "sort_order">[] }>(
+      "/admin/projects/order",
+      {
+        method: "PUT",
+        body: JSON.stringify({ ids: items.map((item) => item.id) }),
+      },
+    );
+    if (request === currentRequest) {
+      const positions = new Map(
+        saved.items.map((item) => [item.id, item.sort_order]),
+      );
+      result.value.items = items.map((item) => ({
+        ...item,
+        sort_order: positions.get(item.id) ?? item.sort_order,
+      }));
+    } else if (
+      isProject.value &&
+      route.path === listPath.value &&
+      !isGitHub.value
+    ) {
+      await load();
+    }
+    notify("作品顺序已保存");
+  } catch (e) {
+    if (request === currentRequest) result.value.items = previous;
+    void showError(errorMessage(e), "作品顺序未保存");
+  } finally {
+    savingOrder.value = false;
+    await nextTick();
+    if (
+      request === currentRequest &&
+      focused?.isConnected &&
+      document.activeElement === document.body
+    )
+      focused.focus();
+  }
+}
 async function toggle(c: Content) {
-  if (busy.value) return;
+  if (locked.value) return;
   busy.value = c.id;
   try {
     const full = await api<Content>(`/admin/contents/${c.id}`);
@@ -118,7 +213,7 @@ async function refreshList() {
   }
 }
 async function toggleFeatured(c: Content) {
-  if (busy.value) return;
+  if (locked.value) return;
   busy.value = c.id;
   try {
     const full = await api<Content>(`/admin/contents/${c.id}`);
@@ -136,7 +231,7 @@ async function toggleFeatured(c: Content) {
   }
 }
 async function remove(c: Content) {
-  if (busy.value) return;
+  if (locked.value) return;
   busy.value = c.id;
   try {
     if (
@@ -274,6 +369,17 @@ async function remove(c: Content) {
           />
           <button type="submit" class="btn secondary">搜索</button>
         </form>
+        <p
+          v-if="isProject && result.items.length"
+          class="project-order-hint"
+          role="status"
+        >
+          {{
+            savingOrder
+              ? "正在保存作品顺序…"
+              : "拖动左侧手柄或用上下按钮调整本页顺序，自动保存并同步到展示页。"
+          }}
+        </p>
         <div v-if="loading" class="loading-panel">正在读取内容…</div>
         <div v-else-if="error" class="error-panel" role="alert">
           {{ error }} <button class="text-link" @click="load">重试</button>
@@ -300,9 +406,14 @@ async function remove(c: Content) {
           aria-label="内容列表"
           tabindex="0"
         >
-          <table class="content-table">
+          <table
+            class="content-table"
+            :class="{ 'project-order-table': isProject }"
+            :aria-busy="savingOrder"
+          >
             <thead>
               <tr>
+                <th v-if="isProject" scope="col">排序</th>
                 <th>{{ isProject ? "作品" : "内容" }}</th>
                 <th>状态</th>
                 <th>浏览 / 点赞</th>
@@ -311,15 +422,63 @@ async function remove(c: Content) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="c in result.items" :key="c.id">
+              <tr
+                v-for="(c, i) in result.items"
+                :key="c.id"
+                :class="{
+                  'project-dragging': dragged === c.id,
+                  'project-drop-before': dropIndex === i && draggedIndex > i,
+                  'project-drop-after': dropIndex === i && draggedIndex < i,
+                }"
+                @dragover="dragOver($event, i)"
+                @dragleave="dropIndex === i && (dropIndex = -1)"
+                @drop="drop($event, i)"
+              >
+                <td v-if="isProject" class="project-order-cell">
+                  <div class="project-order-controls">
+                    <button
+                      type="button"
+                      class="project-drag-handle"
+                      :aria-label="`拖动排序：${c.title}`"
+                      title="拖动调整顺序，也可按上下方向键"
+                      :draggable="!locked && result.items.length > 1"
+                      :disabled="locked || result.items.length < 2"
+                      @dragstart="startDrag($event, c)"
+                      @dragend="endDrag"
+                      @keydown.up.prevent="moveProject(i, i - 1)"
+                      @keydown.down.prevent="moveProject(i, i + 1)"
+                    >
+                      <Icon name="grip" :size="21" />
+                    </button>
+                    <div class="project-order-buttons">
+                      <button
+                        type="button"
+                        :aria-label="`上移：${c.title}`"
+                        title="上移"
+                        :disabled="locked || i === 0"
+                        @click="moveProject(i, i - 1)"
+                      >
+                        <Icon name="up" :size="14" />
+                      </button>
+                      <button
+                        type="button"
+                        :aria-label="`下移：${c.title}`"
+                        title="下移"
+                        :disabled="locked || i === result.items.length - 1"
+                        @click="moveProject(i, i + 1)"
+                      >
+                        <Icon name="down" :size="14" />
+                      </button>
+                    </div>
+                  </div>
+                </td>
                 <td>
                   <RouterLink :to="adminContentPath(c)" class="table-title">{{
                     contentDescription(c)
                   }}</RouterLink>
                   <div class="table-subtitle">
                     {{ kindName(c.kind)
-                    }}<span v-if="c.featured"> · 首页精选</span
-                    ><span v-if="isProject"> · 顺序 {{ c.sort_order }}</span>
+                    }}<span v-if="c.featured"> · 首页精选</span>
                   </div>
                 </td>
                 <td>
@@ -344,7 +503,7 @@ async function remove(c: Content) {
                       class="text-link featured-action"
                       :class="{ 'is-featured': c.featured }"
                       :aria-pressed="c.featured"
-                      :disabled="busy !== 0"
+                      :disabled="locked"
                       @click="toggleFeatured(c)"
                     >
                       <Icon name="star" :size="14" />{{
@@ -352,13 +511,13 @@ async function remove(c: Content) {
                       }}</button
                     ><button
                       class="text-link"
-                      :disabled="busy !== 0"
+                      :disabled="locked"
                       @click="toggle(c)"
                     >
                       {{ c.status === "published" ? "撤回" : "发布" }}</button
                     ><button
                       class="text-link danger-text"
-                      :disabled="busy !== 0"
+                      :disabled="locked"
                       @click="remove(c)"
                     >
                       删除
@@ -382,3 +541,66 @@ async function remove(c: Content) {
     </div>
   </Transition>
 </template>
+
+<style scoped>
+.project-order-hint {
+  margin: 0;
+  padding: 12px 21px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.project-order-table td:nth-child(2) {
+  max-width: 280px;
+}
+.project-order-table .project-order-cell {
+  width: 76px;
+  padding: 16px 10px 16px 18px;
+}
+.project-order-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.project-order-controls button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+}
+.project-order-controls button:not(:disabled):hover {
+  border-color: var(--line-dark);
+  background: var(--code);
+  color: var(--ink);
+}
+.project-order-controls button:disabled {
+  opacity: 0.3;
+}
+.project-drag-handle {
+  width: 30px;
+  height: 42px;
+  cursor: grab;
+}
+.project-drag-handle:active {
+  cursor: grabbing;
+}
+.project-order-buttons {
+  display: grid;
+  gap: 2px;
+}
+.project-order-buttons button {
+  width: 25px;
+  height: 25px;
+}
+.project-dragging {
+  opacity: 0.45;
+}
+.project-drop-before {
+  box-shadow: inset 0 3px var(--accent);
+}
+.project-drop-after {
+  box-shadow: inset 0 -3px var(--accent);
+}
+</style>
