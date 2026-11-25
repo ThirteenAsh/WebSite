@@ -48,6 +48,11 @@ export interface SiteSettings {
   github_username: string;
   github_url: string;
   skills: string[];
+  copyright_text: string;
+  icp_number: string;
+  icp_url: string;
+  police_number: string;
+  police_url: string;
 }
 export interface SiteCounts {
   projects: number;

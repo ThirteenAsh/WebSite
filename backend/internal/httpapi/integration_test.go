@@ -840,6 +840,96 @@ func TestIntegration(t *testing.T) {
 			t.Fatal("重复提交改变了顺序")
 		}
 	})
+	t.Run("版权和备案设置兼容旧数据并支持修改清空与链接校验", func(t *testing.T) {
+		original, err := app.settings(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			raw, _ := json.Marshal(original)
+			if _, err := db.Exec("UPDATE settings SET payload=? WHERE id=1", raw); err != nil {
+				t.Error(err)
+			}
+		}()
+		// 升级前的设置没有页脚字段，应沿用原页面显示的版权和备案信息。
+		if _, err := db.Exec("UPDATE settings SET payload=JSON_REMOVE(payload,'$.copyright_text','$.icp_number','$.icp_url','$.police_number','$.police_url') WHERE id=1"); err != nil {
+			t.Fatal(err)
+		}
+		readSettings := func(path string) model.SiteSettings {
+			t.Helper()
+			raw := request(admin, "GET", path, nil, 200, csrf)
+			var settings model.SiteSettings
+			if path == "/api/site" {
+				var result struct {
+					Settings model.SiteSettings `json:"settings"`
+				}
+				if err := json.Unmarshal(raw, &result); err != nil {
+					t.Fatal(err)
+				}
+				return result.Settings
+			}
+			if err := json.Unmarshal(raw, &settings); err != nil {
+				t.Fatal(err)
+			}
+			return settings
+		}
+		s := readSettings("/api/admin/settings")
+		defaults := model.DefaultSiteSettings()
+		if s.CopyrightText != defaults.CopyrightText || s.ICPNumber != defaults.ICPNumber || s.ICPURL != defaults.ICPURL || s.PoliceNumber != defaults.PoliceNumber || s.PoliceURL != defaults.PoliceURL || s.Name != original.Name || s.Intro != original.Intro {
+			t.Fatalf("旧设置默认值无效或改变了已有文案: %+v", s)
+		}
+		s.CopyrightText = "  example.com  "
+		s.ICPNumber = " 测ICP备123456号-2 "
+		s.ICPURL = " https://beian.miit.gov.cn/ "
+		s.PoliceNumber = " 测公网安备 12345678901234号 "
+		s.PoliceURL = " https://beian.mps.gov.cn/#/query/webSearch?code=12345678901234 "
+		request(admin, "PUT", "/api/admin/settings", s, 200, csrf)
+		s = readSettings("/api/site")
+		if s.CopyrightText != "example.com" || s.ICPNumber != "测ICP备123456号-2" || s.PoliceNumber != "测公网安备 12345678901234号" || s.ICPURL != strings.TrimSpace(s.ICPURL) || s.PoliceURL != strings.TrimSpace(s.PoliceURL) {
+			t.Fatalf("页脚设置未公开或未规范化: %+v", s)
+		}
+		fields := []string{"copyright_text", "icp_number", "icp_url", "police_number", "police_url"}
+		raw, _ := json.Marshal(s)
+		var oldClient map[string]any
+		_ = json.Unmarshal(raw, &oldClient)
+		for _, field := range fields {
+			delete(oldClient, field)
+		}
+		request(admin, "PUT", "/api/admin/settings", oldClient, 200, csrf)
+		checkUnchanged := func() {
+			t.Helper()
+			got := readSettings("/api/site")
+			wantJSON, _ := json.Marshal(s)
+			gotJSON, _ := json.Marshal(got)
+			if !bytes.Equal(wantJSON, gotJSON) {
+				t.Fatalf("旧客户端或无效请求改变了设置: %s -> %s", wantJSON, gotJSON)
+			}
+		}
+		checkUnchanged()
+		for _, invalid := range []struct{ field, value string }{
+			{"copyright_text", strings.Repeat("字", 201)},
+			{"icp_number", strings.Repeat("字", 201)},
+			{"police_number", strings.Repeat("字", 201)},
+			{"icp_url", "javascript:alert(1)"},
+			{"police_url", "data:text/html,test"},
+			{"icp_url", "//example.com"},
+			{"police_url", "https://user:password@example.com/"},
+			{"police_url", "https://example.com/" + strings.Repeat("x", 1000)},
+		} {
+			var input map[string]any
+			_ = json.Unmarshal(raw, &input)
+			input[invalid.field] = invalid.value
+			request(admin, "PUT", "/api/admin/settings", input, 400, csrf)
+			checkUnchanged()
+		}
+		s.CopyrightText, s.ICPNumber, s.ICPURL, s.PoliceNumber, s.PoliceURL = "", "", "", "", ""
+		request(admin, "PUT", "/api/admin/settings", s, 200, csrf)
+		checkUnchanged()
+		if err := bootstrap.SeedDefaults(db); err != nil {
+			t.Fatal(err)
+		}
+		checkUnchanged()
+	})
 	t.Run("设置保存及密码会话撤销", func(t *testing.T) {
 		s, e := app.settings(context.Background())
 		if e != nil {

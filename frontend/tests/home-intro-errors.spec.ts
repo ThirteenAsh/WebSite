@@ -12,6 +12,11 @@ const settings: SiteSettings = {
   github_username: "ThirteenAsh",
   github_url: "https://github.com/ThirteenAsh",
   skills: [],
+  copyright_text: "bytecraft.com.cn",
+  icp_number: "",
+  icp_url: "",
+  police_number: "",
+  police_url: "",
 };
 const siteResponse = { settings, counts: { projects: 0, writings: 0 } };
 const contentsResponse = { items: [], total: 0, page: 1, pages: 0 };

@@ -1199,6 +1199,8 @@ hr {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .site-footer strong {
   font-size: 12px;
@@ -1228,11 +1230,12 @@ hr {
   font-size: 11px;
   line-height: 1.8;
 }
-.footer-registration a {
+.footer-registration-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   max-width: 100%;
+  overflow-wrap: anywhere;
   transition: color 180ms ease;
 }
 .footer-registration a:hover {

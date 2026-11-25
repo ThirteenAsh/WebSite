@@ -14,7 +14,7 @@ import (
 var legacyProjects []byte
 
 func SeedDefaults(db *sql.DB) error {
-	s := model.SiteSettings{Name: "ThirteenAsh", Tagline: "构建 · 学习 · 记录", HeroTitle: "把想法写成代码，", HeroHighlight: "把过程留在这里。", Intro: "我只是一个普通的大学生。\n这里整理我的作品，也记录学习和生活中的片刻。", About: "我是 ThirteenAsh，热爱编程。这里是我的个人空间，代码、项目、技术笔记，以及日常里值得留下的小事。", AvatarURL: "/avatar.jpg", GitHubUsername: "ThirteenAsh", GitHubURL: "https://github.com/ThirteenAsh", Skills: []string{"Java / Spring", "Vue / TypeScript", "Rust / Tauri", "Python / AI"}}
+	s := model.DefaultSiteSettings()
 	raw, _ := json.Marshal(s)
 	tx, e := db.Begin()
 	if e != nil {

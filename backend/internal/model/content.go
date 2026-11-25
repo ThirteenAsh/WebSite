@@ -15,6 +15,11 @@ type SiteSettings struct {
 	GitHubUsername string   `json:"github_username"`
 	GitHubURL      string   `json:"github_url"`
 	Skills         []string `json:"skills"`
+	CopyrightText  string   `json:"copyright_text"`
+	ICPNumber      string   `json:"icp_number"`
+	ICPURL         string   `json:"icp_url"`
+	PoliceNumber   string   `json:"police_number"`
+	PoliceURL      string   `json:"police_url"`
 }
 
 type Content struct {

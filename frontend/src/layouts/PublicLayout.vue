@@ -216,7 +216,12 @@ watch(
     <footer class="site-footer wrap">
       <div>
         <strong>{{ site.settings?.name || "ThirteenAsh" }}</strong
-        ><span>© {{ new Date().getFullYear() }} · bytecraft.com.cn</span>
+        ><span
+          >© {{ new Date().getFullYear()
+          }}<template v-if="site.settings?.copyright_text">
+            · {{ site.settings.copyright_text }}</template
+          ></span
+        >
       </div>
       <div class="footer-links">
         <a
@@ -227,23 +232,30 @@ watch(
           >GitHub<Icon name="arrow" :size="14" /></a
         ><a href="#main-content">回到顶部 ↑</a>
       </div>
-      <nav class="footer-registration" aria-label="网站备案信息">
-        <a
-          href="https://beian.miit.gov.cn/"
-          target="_blank"
-          rel="noopener noreferrer"
-          >陕ICP备2025084108号-1</a
+      <nav
+        v-if="site.settings?.icp_number || site.settings?.police_number"
+        class="footer-registration"
+        aria-label="网站备案信息"
+      >
+        <component
+          :is="site.settings?.icp_url ? 'a' : 'span'"
+          v-if="site.settings?.icp_number"
+          class="footer-registration-item"
+          :href="site.settings.icp_url || undefined"
+          :target="site.settings.icp_url ? '_blank' : undefined"
+          :rel="site.settings.icp_url ? 'noopener noreferrer' : undefined"
+          >{{ site.settings.icp_number }}</component
         >
-        <a
-          href="https://beian.mps.gov.cn/#/query/webSearch?code=61012502000363"
-          target="_blank"
-          rel="noopener noreferrer"
-          ><img
-            src="/beian-police.png"
-            alt=""
-            width="15"
-            height="16"
-          />陕公网安备 61012502000363号</a
+        <component
+          :is="site.settings?.police_url ? 'a' : 'span'"
+          v-if="site.settings?.police_number"
+          class="footer-registration-item"
+          :href="site.settings.police_url || undefined"
+          :target="site.settings.police_url ? '_blank' : undefined"
+          :rel="site.settings.police_url ? 'noopener noreferrer' : undefined"
+          ><img src="/beian-police.png" alt="" width="15" height="16" />{{
+            site.settings.police_number
+          }}</component
         >
       </nav>
     </footer>

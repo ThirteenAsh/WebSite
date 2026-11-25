@@ -69,6 +69,8 @@ scripts/
 
 仓库元数据与展示文案分开：`repo_*` 字段由 GitHub 更新；标题、摘要、Markdown 正文、链接、技术标签、排序及精选由后台维护。
 
+站点设置中的 `copyright_text / icp_number / icp_url / police_number / police_url` 用于页脚版权文字和备案信息。旧 JSON 缺少字段时沿用原页面的默认内容，显式保存空字符串则隐藏相应内容；备案号存在但链接留空时显示纯文字。设置保存时保留请求中未提供的字段，备案链接仅接受 HTTP(S)。这些字段保存在现有 `settings.payload`，无需数据库结构迁移。
+
 ## 主要接口
 
 所有业务接口在 `/api` 下，错误统一返回 `{ "error": "可读信息" }`。列表支持分页。管理员写入需登录 Cookie 和 `X-CSRF-Token`。

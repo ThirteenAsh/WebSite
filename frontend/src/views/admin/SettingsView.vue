@@ -131,6 +131,45 @@ onMounted(load);
         </label>
       </section>
       <section class="admin-panel settings-panel">
+        <h2>页脚与备案信息</h2>
+        <label
+          >版权文字<input
+            v-model="settings.copyright_text"
+            maxlength="200"
+            placeholder="bytecraft.com.cn"
+        /></label>
+        <div class="form-row">
+          <label
+            >ICP备案号<input
+              v-model="settings.icp_number"
+              maxlength="200"
+              placeholder="陕ICP备2025084108号-1"
+          /></label>
+          <label
+            >ICP备案链接<input
+              v-model="settings.icp_url"
+              type="url"
+              maxlength="1000"
+              placeholder="https://beian.miit.gov.cn/"
+          /></label>
+        </div>
+        <div class="form-row">
+          <label
+            >公安备案号<input
+              v-model="settings.police_number"
+              maxlength="200"
+              placeholder="陕公网安备 61012502000363号"
+          /></label>
+          <label
+            >公安备案链接<input
+              v-model="settings.police_url"
+              type="url"
+              maxlength="1000"
+              placeholder="https://beian.mps.gov.cn/#/query/webSearch?code=61012502000363"
+          /></label>
+        </div>
+      </section>
+      <section class="admin-panel settings-panel">
         <h2>GitHub 关联</h2>
         <label
           >GitHub 用户名<input
@@ -143,10 +182,6 @@ onMounted(load);
             type="url"
             placeholder="https://github.com/ThirteenAsh"
         /></label>
-        <p class="muted small-text">
-          用户名决定可导入的公开仓库；已关联项目仍按各自仓库地址同步。API Token
-          只在后端环境配置中保存。
-        </p>
       </section>
     </div>
     <aside>

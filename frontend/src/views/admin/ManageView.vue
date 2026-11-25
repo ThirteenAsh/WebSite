@@ -369,17 +369,6 @@ async function remove(c: Content) {
           />
           <button type="submit" class="btn secondary">搜索</button>
         </form>
-        <p
-          v-if="isProject && result.items.length"
-          class="project-order-hint"
-          role="status"
-        >
-          {{
-            savingOrder
-              ? "正在保存作品顺序…"
-              : "拖动左侧手柄或用上下按钮调整本页顺序，自动保存并同步到展示页。"
-          }}
-        </p>
         <div v-if="loading" class="loading-panel">正在读取内容…</div>
         <div v-else-if="error" class="error-panel" role="alert">
           {{ error }} <button class="text-link" @click="load">重试</button>

@@ -52,7 +52,7 @@ func InsertContent(ctx context.Context, db interface {
 	return result.LastInsertId()
 }
 func Settings(ctx context.Context, db *sql.DB) (model.SiteSettings, error) {
-	var s model.SiteSettings
+	s := model.DefaultSiteSettings()
 	var raw []byte
 	err := db.QueryRowContext(ctx, "SELECT payload FROM settings WHERE id=1").Scan(&raw)
 	if err != nil {
