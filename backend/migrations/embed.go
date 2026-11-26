@@ -14,3 +14,6 @@ var MultilineLabelsSchema string
 
 //go:embed 004_upload_groups.sql
 var UploadGroupsSchema string
+
+//go:embed 005_upload_rotation.sql
+var UploadRotationSchema string

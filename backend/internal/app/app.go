@@ -54,6 +54,11 @@ func Run(args []string) error {
 		fmt.Println("密码已重置，原登录会话已失效。")
 		return nil
 	}
+	// 已有站点直接启动时也补齐新版本的结构，避免接口先启动后才发现缺少字段。
+	// 这里只迁移表结构，不执行管理员初始化或默认内容迁入。
+	if err = database.Migrate(db); err != nil {
+		return fmt.Errorf("数据库结构升级失败: %w", err)
+	}
 	if err = os.MkdirAll(cfg.Server.UploadDir, 0750); err != nil {
 		return err
 	}

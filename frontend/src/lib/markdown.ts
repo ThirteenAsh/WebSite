@@ -1,6 +1,6 @@
 import { Marked } from "marked";
 import DOMPurify from "dompurify";
-import type { Content } from "./types";
+import { formatDate, type Content, type UploadGroup } from "./types";
 
 const markdown = new Marked({
   hooks: {
@@ -44,4 +44,12 @@ export function contentDescription(c: Content) {
   return c.kind === "moment"
     ? markdownExcerpt(c.body, 60) || `${c.images.length} 张图片`
     : c.title;
+}
+export function uploadGroupName(group: UploadGroup) {
+  if (group.kind !== "moment") return group.title;
+  const text = Array.from(markdownExcerpt(group.body_preview || "", 200));
+  const excerpt = text.length
+    ? `${text.slice(0, 20).join("")}${text.length > 20 ? "…" : ""}`
+    : `${group.image_count || 0} 张图片`;
+  return `${formatDate(group.created_at)} · ${excerpt}`;
 }

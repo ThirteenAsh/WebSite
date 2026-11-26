@@ -5,20 +5,29 @@ import type { Content, Page } from "../lib/types";
 import Icon from "../components/Icon.vue";
 import ContentCard from "../components/ContentCard.vue";
 import HomeIntro from "../components/HomeIntro.vue";
+import InfiniteLoader from "../components/InfiniteLoader.vue";
+import { useInfiniteFeed } from "../lib/infiniteFeed";
+const {
+  items: writings,
+  error: writingError,
+  loadingMore,
+  moreError,
+  hasMore,
+  reset: loadWritings,
+  loadMore,
+} = useInfiniteFeed("/contents?kind=writing&limit=5&preview=1");
 const projects = ref<Content[]>([]),
-  writings = ref<Content[]>([]),
   loading = ref(true),
   error = ref("");
 async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const [p, w] = await Promise.all([
+    const [p] = await Promise.all([
       api<Page<Content>>("/contents?kind=project&featured=1&limit=4"),
-      api<Page<Content>>("/contents?kind=writing&limit=5&preview=1"),
+      loadWritings(),
     ]);
     projects.value = p.items;
-    writings.value = w.items;
   } catch (e) {
     error.value = errorMessage(e);
   } finally {
@@ -119,6 +128,9 @@ onMounted(load);
       </div>
     </div>
     <div v-if="loading" class="loading-panel" role="status">正在整理文字…</div>
+    <div v-else-if="writingError" class="error-panel" role="alert">
+      {{ writingError }} <button class="text-link" @click="load">重试</button>
+    </div>
     <div v-else-if="writings.length" class="writing-list">
       <ContentCard
         v-for="c in writings"
@@ -132,6 +144,13 @@ onMounted(load);
       <h3>这里似乎无人来过~</h3>
       <p>一些技术分享，一些日常片刻。<br />会写在这里。</p>
     </div>
+    <InfiniteLoader
+      v-if="!loading && !writingError && writings.length"
+      :has-more="hasMore"
+      :loading="loadingMore"
+      :error="moreError"
+      @load="loadMore"
+    />
   </section>
 </template>
 <style scoped>

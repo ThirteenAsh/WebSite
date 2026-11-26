@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { formatDate, type UploadGroup } from "../lib/types";
+import type { UploadGroup } from "../lib/types";
+import { uploadGroupName } from "../lib/markdown";
 import PaperSelect from "./PaperSelect.vue";
 
 const scope = defineModel<string>({ required: true });
@@ -17,7 +18,7 @@ const options = computed(() => {
     Number(scope.value) &&
     !props.groups.some((g) => String(g.id) === scope.value)
   ) {
-    common.push({ value: scope.value, label: `内容 #${scope.value}` });
+    common.push({ value: scope.value, label: "当前内容" });
   }
   const sections = [
     { kind: "article", label: "文章" },
@@ -40,8 +41,7 @@ const options = computed(() => {
         .filter((group) => group.kind === section.kind)
         .map((group) => ({
           value: String(group.id),
-          label:
-            group.title || `${formatDate(group.created_at)} 日常 #${group.id}`,
+          label: uploadGroupName(group),
           group: section.label,
         })),
     ]),
@@ -56,5 +56,6 @@ const options = computed(() => {
     :options="options"
     :label="label"
     searchable
+    single-line
   />
 </template>

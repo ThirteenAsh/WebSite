@@ -14,6 +14,8 @@ const paths: Record<string, string> = {
   grip: "M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01",
   up: "M12 20V4m-6 6 6-6 6 6",
   down: "M12 4v16m-6-6 6 6 6-6",
+  "rotate-left": "M3 10V4m0 6h6M3.5 10a9 9 0 1 1 1 8",
+  "rotate-right": "M21 10V4m0 6h-6M20.5 10a9 9 0 1 0-1 8",
   close: "m6 6 12 12M6 18 18 6",
   book: "M4 3h12a3 3 0 0 1 3 3v15H7a3 3 0 0 1-3-3V3Zm0 14h15M8 7h7m-7 4h5",
   code: "m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18",

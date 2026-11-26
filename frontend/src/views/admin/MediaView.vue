@@ -2,7 +2,8 @@
 import { computed, ref } from "vue";
 import { api, notify, errorMessage } from "../../lib/api";
 import { confirmAction, showError } from "../../lib/dialogs";
-import { formatDate, type Upload } from "../../lib/types";
+import type { Upload } from "../../lib/types";
+import { uploadGroupName } from "../../lib/markdown";
 import Icon from "../../components/Icon.vue";
 import MediaGroupSelect from "../../components/MediaGroupSelect.vue";
 import MediaLibrary from "../../components/MediaLibrary.vue";
@@ -16,12 +17,13 @@ const editing = ref<Upload[]>([]);
 const selected = ref(new Map<number, Upload>());
 const newGroup = ref("0");
 const busy = ref(false);
+const rotatingId = ref(0);
 const groups = computed(() => library.value?.groups || []);
 
 function groupName(id: number) {
   const group = groups.value.find((item) => item.id === id);
-  if (!group) return id ? "内容 #" + id : "未归类";
-  return group.title || formatDate(group.created_at) + " 日常 #" + group.id;
+  if (!group) return id ? "所属内容" : "未归类";
+  return uploadGroupName(group);
 }
 function toggleSelection(images: Upload[], checked: boolean) {
   for (const image of images) {
@@ -108,6 +110,29 @@ async function copy(url: string) {
     void showError("复制失败，请打开大图后复制地址");
   }
 }
+async function rotate(image: Upload, direction: "left" | "right") {
+  if (busy.value) return;
+  busy.value = true;
+  rotatingId.value = image.id;
+  try {
+    const updated = await api<Upload>(`/admin/uploads/${image.id}/rotate`, {
+      method: "PUT",
+      body: JSON.stringify({ direction }),
+    });
+    const result = library.value?.result;
+    if (result)
+      result.items = result.items.map((item) =>
+        item.id === image.id ? updated : item,
+      );
+    if (selected.value.has(image.id)) selected.value.set(image.id, updated);
+    notify(`图片已向${direction === "left" ? "左" : "右"}旋转 90°`);
+  } catch (e) {
+    void showError(errorMessage(e), "图片旋转未保存");
+  } finally {
+    rotatingId.value = 0;
+    busy.value = false;
+  }
+}
 </script>
 
 <template>
@@ -172,6 +197,12 @@ async function copy(url: string) {
     </template>
     <template #actions="{ image }">
       <span
+        v-if="rotatingId === image.id"
+        role="status"
+        class="muted small-text"
+        >正在旋转并保存…</span
+      >
+      <span
         v-if="image.content_id"
         class="media-card-group"
         :title="groupName(image.content_id)"
@@ -197,6 +228,26 @@ async function copy(url: string) {
           @click="editGroup([image])"
         >
           <Icon name="edit" :size="15" />归类
+        </button>
+        <button
+          type="button"
+          class="text-link rotate-action"
+          :disabled="busy"
+          :aria-label="`向左旋转 ${image.original_name}`"
+          title="向左旋转 90°"
+          @click="rotate(image, 'left')"
+        >
+          <Icon name="rotate-left" :size="16" />
+        </button>
+        <button
+          type="button"
+          class="text-link rotate-action"
+          :disabled="busy"
+          :aria-label="`向右旋转 ${image.original_name}`"
+          title="向右旋转 90°"
+          @click="rotate(image, 'right')"
+        >
+          <Icon name="rotate-right" :size="16" />
         </button>
         <button type="button" class="text-link" @click="copy(image.url)">
           <Icon name="link" :size="15" />复制地址
@@ -275,5 +326,15 @@ async function copy(url: string) {
 }
 .media-actions {
   align-items: center;
+}
+.media-actions .rotate-action {
+  width: 30px;
+  min-height: 30px;
+  justify-content: center;
+  border: 1px solid var(--line-dark);
+  border-radius: 5px;
+}
+.media-actions .rotate-action:not(:disabled):hover {
+  background: var(--yellow);
 }
 </style>

@@ -81,7 +81,17 @@ func Migrate(db *sql.DB) error {
 		return err
 	}
 	if count == 0 {
-		return executeSchema(db, migrations.UploadGroupsSchema)
+		if err := executeSchema(db, migrations.UploadGroupsSchema); err != nil {
+			return err
+		}
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='uploads' AND column_name='revision'`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		if err := executeSchema(db, migrations.UploadRotationSchema); err != nil {
+			return err
+		}
 	}
 	return nil
 }

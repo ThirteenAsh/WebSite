@@ -85,6 +85,8 @@ export interface UploadGroup {
   kind: Content["kind"];
   title: string;
   created_at: string;
+  body_preview?: string;
+  image_count?: number;
 }
 export interface Repo {
   id: number;

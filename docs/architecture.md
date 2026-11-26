@@ -63,7 +63,9 @@ scripts/
 
 文章与日常各有独立的前台、后台入口：`/articles` 与 `/admin/contents` 仅显示文章；`/moments` 与 `/admin/moments` 仅显示日常。日常使用独立的编辑器和动态组件，保存时仅提交 `kind/body/images/status`；服务端移除日常的标题、标记、摘要、封面等文章字段，保留有序的 0–9 张配图，文字和图片不能同时为空。旧日常的 `/articles/:id`、`/admin/contents/:id` 以及新建入口 `?kind=moment` 会转到对应日常页面，不需要数据库迁移。
 
-`GET /site` 的数量分别提供 `articles` 和 `moments`，并保留两者合计的 `writings`。统一搜索仍可查询全部形式；首页通过 `kind=writing` 混合请求文章与日常，按首次发布时间倒序展示最新五条记录，不按内容形式分区。
+`GET /site` 的数量分别提供 `articles` 和 `moments`，并保留两者合计的 `writings`。统一搜索仍可查询全部形式；首页通过 `kind=writing` 混合请求文章与日常，按首次发布时间倒序首屏加载五条记录，继续下滑自动追加。日常列表每批十二条，也使用滚动加载；追加失败保留已有内容并提供手动重试，抵达末页停止请求。
+
+图片分类的日常返回最多 2000 字符的 `body_preview` 和 `image_count`，前端去除 Markdown 标记后展示正文摘要；纯图片日常展示图片数量。图片旋转按 90° 左右调整并持久保存，`uploads.revision` 每次递增，图片地址附带 `?v=` 版本以刷新缓存，同一事务更新正文、封面、配图和站点头像引用。WebP 使用无损重编码；旧 GIF 不进行旋转，避免丢失可能存在的动画。
 
 点赞和浏览更新在数据库事务内锁定对应内容行，以保证并发下累计计数和去重记录一致。点赞使用“设为已赞/未赞”的幂等接口，重复请求不会反转状态。
 
@@ -99,6 +101,8 @@ scripts/
 | `POST /admin/github/import` | `{ "ids": [...] }` 导入到草稿 |
 | `POST /admin/github/sync` | 同步全部已关联项目，含草稿；返回逐项失败信息 |
 | `GET/POST /admin/uploads` | 图片分页、multipart file 上传 |
+| `GET /admin/uploads/groups` | 内容分类，含日常正文摘要和图片数量 |
+| `PUT /admin/uploads/{id}/rotate` | `{ "direction": "left" / "right" }`，旋转并保存图片，返回更新后的图片和尺寸 |
 | `DELETE /admin/uploads/{id}` | 拒绝删除被内容或站点引用的图片 |
 
 `/uploads/{filename}` 是独立图片资源路径，不在 `/api` 下。

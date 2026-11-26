@@ -15,4 +15,5 @@ type Upload struct {
 	CreatedAt    time.Time `json:"created_at"`
 	URL          string    `json:"url"`
 	ContentID    *int64    `json:"content_id"`
+	Revision     int64     `json:"revision"`
 }

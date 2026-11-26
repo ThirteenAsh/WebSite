@@ -14,6 +14,7 @@ type Server struct {
 	cfg      config.Server
 	github   *github.Client
 	syncMu   sync.Mutex
+	uploadMu sync.Mutex
 	loginMu  sync.Mutex
 	attempts map[string]loginAttempt
 }

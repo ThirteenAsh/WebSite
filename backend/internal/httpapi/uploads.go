@@ -32,15 +32,18 @@ const (
 var imageFilename = regexp.MustCompile(`^[0-9a-f]{64}\.(jpg|png|gif|webp)$`)
 var uploadKeyPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-const uploadColumns = "u.id,u.filename,u.original_name,u.mime_type,u.size_bytes,u.width,u.height,u.created_at,u.content_id"
+const uploadColumns = "u.id,u.filename,u.original_name,u.mime_type,u.size_bytes,u.width,u.height,u.created_at,u.content_id,u.revision"
 
 // 旧图和跨内容复用的图片也按实际引用出现在对应分类中。
 const uploadReference = `(LOCATE(CONCAT('/uploads/',u.filename),c.body)>0 OR LOCATE(CONCAT('/uploads/',u.filename),c.cover_url)>0 OR LOCATE(u.filename,CAST(c.images AS CHAR))>0)`
 
 func scanUpload(row interface{ Scan(...any) error }) (model.Upload, error) {
 	var u model.Upload
-	err := row.Scan(&u.ID, &u.Filename, &u.OriginalName, &u.MIME, &u.Size, &u.Width, &u.Height, &u.CreatedAt, &u.ContentID)
+	err := row.Scan(&u.ID, &u.Filename, &u.OriginalName, &u.MIME, &u.Size, &u.Width, &u.Height, &u.CreatedAt, &u.ContentID, &u.Revision)
 	u.URL = "/uploads/" + u.Filename
+	if u.Revision > 0 {
+		u.URL += "?v=" + strconv.FormatInt(u.Revision, 10)
+	}
 	return u, err
 }
 
@@ -231,12 +234,14 @@ func (a *Server) listUploads(w http.ResponseWriter, r *http.Request) {
 }
 func (a *Server) listUploadGroups(w http.ResponseWriter, r *http.Request) {
 	type group struct {
-		ID        int64     `json:"id"`
-		Kind      string    `json:"kind"`
-		Title     string    `json:"title"`
-		CreatedAt time.Time `json:"created_at"`
+		ID          int64     `json:"id"`
+		Kind        string    `json:"kind"`
+		Title       string    `json:"title"`
+		CreatedAt   time.Time `json:"created_at"`
+		BodyPreview string    `json:"body_preview,omitempty"`
+		ImageCount  int       `json:"image_count"`
 	}
-	rows, err := a.db.QueryContext(r.Context(), "SELECT id,kind,title,created_at FROM contents ORDER BY updated_at DESC,id DESC")
+	rows, err := a.db.QueryContext(r.Context(), "SELECT id,kind,title,created_at,IF(kind='moment',LEFT(body,2000),''),JSON_LENGTH(images) FROM contents ORDER BY updated_at DESC,id DESC")
 	if err != nil {
 		serverError(w, err)
 		return
@@ -245,7 +250,7 @@ func (a *Server) listUploadGroups(w http.ResponseWriter, r *http.Request) {
 	groups := []group{}
 	for rows.Next() {
 		var g group
-		if err := rows.Scan(&g.ID, &g.Kind, &g.Title, &g.CreatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Kind, &g.Title, &g.CreatedAt, &g.BodyPreview, &g.ImageCount); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -291,6 +296,8 @@ func (a *Server) moveUpload(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, 200, map[string]bool{"ok": true})
 }
 func (a *Server) deleteUpload(w http.ResponseWriter, r *http.Request) {
+	a.uploadMu.Lock()
+	defer a.uploadMu.Unlock()
 	id, ok := contentID(w, r)
 	if !ok {
 		return

@@ -3789,6 +3789,12 @@ label > .paper-select {
   user-select: none;
   overflow-wrap: anywhere;
 }
+.paper-select-menu--single-line .paper-select-option > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .paper-select-option--grouped {
   padding-inline-start: 25px;
 }

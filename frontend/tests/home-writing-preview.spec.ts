@@ -36,6 +36,17 @@ test("首页按发布顺序混排文章与日常，文章预览和列表详情�
   const homeQueries: string[] = [];
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/visitor", (route) =>
+    route.fulfill({ json: { ok: true } }),
+  );
+  await page.route("**/api/site", (route) =>
+    route.fulfill({
+      json: {
+        settings: { name: "ThirteenAsh", skills: [] },
+        counts: { projects: 0, writings: 3, articles: 2, moments: 1 },
+      },
+    }),
+  );
   await page.route("**/api/contents**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.endsWith("/view"))
@@ -65,7 +76,7 @@ test("首页按发布顺序混排文章与日常，文章预览和列表详情�
   await page.goto("/");
   await expect(page.locator(".writing-list > article")).toHaveCount(3);
   expect(homeQueries).toEqual(["?kind=writing&limit=5&preview=1"]);
-  await expect(page.locator("#writing-title")).toContainText("最近的记录");
+  await expect(page.locator("#writing-title")).toContainText("最近...");
   await expect(page.locator("#moments-title")).toHaveCount(0);
   const cards = page.locator(".writing-list > article");
   await expect(cards.nth(0)).toContainText(article.title);

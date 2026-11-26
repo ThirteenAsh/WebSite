@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/image/webp"
 
 	"thirteenash/internal/bootstrap"
 	"thirteenash/internal/config"
@@ -460,6 +461,119 @@ func TestIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		request(admin, "DELETE", fmt.Sprintf("/api/admin/uploads/%d", legacyID), nil, 200, csrf)
+	})
+	t.Run("图片旋转持久保存尺寸和像素并更新全部引用及分类摘要", func(t *testing.T) {
+		img := image.NewNRGBA(image.Rect(0, 0, 3, 2))
+		img.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
+		img.SetNRGBA(2, 1, color.NRGBA{B: 255, A: 128})
+		var pngData bytes.Buffer
+		_ = png.Encode(&pngData, img)
+		var u model.Upload
+		_ = json.Unmarshal(uploadFile(t, "旋转.png", pngData.Bytes(), nil, 201), &u)
+		originalURL := u.URL
+		originalImage, err := webp.Decode(bytes.NewReader(request(visitor, "GET", u.URL, nil, 200, "")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		originalSettings, err := app.settings(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings := originalSettings
+		settings.AvatarURL = server.URL + u.URL
+		request(admin, "PUT", "/api/admin/settings", settings, 200, csrf)
+		var created struct {
+			ID int64 `json:"id"`
+		}
+		c := model.Content{Kind: "moment", Body: "旋转示例 **正文**\n![配图](" + u.URL + ")", Images: []string{u.URL}, Status: "published"}
+		_ = json.Unmarshal(request(admin, "POST", "/api/admin/contents", c, 201, csrf), &created)
+		id := created.ID
+		c = model.Content{Kind: "article", Title: "旋转引用", Body: "![图](" + server.URL + u.URL + ")", CoverURL: u.URL, Status: "draft"}
+		_ = json.Unmarshal(request(admin, "POST", "/api/admin/contents", c, 201, csrf), &created)
+		articleID := created.ID
+		groups := request(admin, "GET", "/api/admin/uploads/groups", nil, 200, csrf)
+		if !bytes.Contains(groups, []byte(`"body_preview":"旋转示例`)) || !bytes.Contains(groups, []byte(`"image_count":1`)) {
+			t.Fatal("分类没有返回日常摘要和图片数量")
+		}
+		path := fmt.Sprintf("/api/admin/uploads/%d/rotate", u.ID)
+		request(visitor, "PUT", path, map[string]string{"direction": "right"}, 401, "")
+		request(admin, "PUT", path, map[string]string{"direction": "right"}, 403, "")
+		request(admin, "PUT", path, map[string]string{"direction": "invalid"}, 400, csrf)
+		request(admin, "PUT", "/api/admin/uploads/9999999/rotate", map[string]string{"direction": "right"}, 404, csrf)
+		// 引用更新失败时，图片文件和已写入事务的 revision 都必须保持原状。
+		if _, err := db.Exec("CREATE TRIGGER reject_rotation BEFORE UPDATE ON contents FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='rotation fixture failure'"); err != nil {
+			t.Fatal(err)
+		}
+		beforeFailure := request(visitor, "GET", originalURL, nil, 200, "")
+		request(admin, "PUT", path, map[string]string{"direction": "right"}, 500, csrf)
+		if _, err := db.Exec("DROP TRIGGER reject_rotation"); err != nil {
+			t.Fatal(err)
+		}
+		var revision int64
+		if err := db.QueryRow("SELECT revision FROM uploads WHERE id=?", u.ID).Scan(&revision); err != nil || revision != 0 {
+			t.Fatal("失败的旋转改变了图片版本")
+		}
+		if !bytes.Equal(beforeFailure, request(visitor, "GET", originalURL, nil, 200, "")) {
+			t.Fatal("失败的旋转改变了原图文件")
+		}
+		for turn := 1; turn <= 4; turn++ {
+			if err := json.Unmarshal(request(admin, "PUT", path, map[string]string{"direction": "right"}, 200, csrf), &u); err != nil {
+				t.Fatal(err)
+			}
+			if u.Revision != int64(turn) || u.URL != fmt.Sprintf("%s?v=%d", originalURL, turn) {
+				t.Fatalf("图片版本没有更新: %+v", u)
+			}
+			decoded, err := webp.Decode(bytes.NewReader(request(visitor, "GET", u.URL, nil, 200, "")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantSize := image.Pt(3, 2)
+			if turn%2 == 1 {
+				wantSize = image.Pt(2, 3)
+			}
+			if decoded.Bounds().Size() != wantSize || image.Pt(u.Width, u.Height) != wantSize {
+				t.Fatal("旋转后的尺寸错误")
+			}
+			if turn == 1 && color.NRGBAModel.Convert(decoded.At(1, 0)) != color.NRGBAModel.Convert(originalImage.At(0, 0)) {
+				t.Fatalf("向右旋转的像素位置错误: got=%v want=%v", color.NRGBAModel.Convert(decoded.At(1, 0)), color.NRGBAModel.Convert(originalImage.At(0, 0)))
+			}
+			if turn == 4 {
+				for y := 0; y < 2; y++ {
+					for x := 0; x < 3; x++ {
+						if color.NRGBAModel.Convert(decoded.At(x, y)) != color.NRGBAModel.Convert(originalImage.At(x, y)) {
+							t.Fatal("四次旋转后像素或透明度发生变化")
+						}
+					}
+				}
+			}
+			var moment, article model.Content
+			_ = json.Unmarshal(request(admin, "GET", fmt.Sprintf("/api/admin/contents/%d", id), nil, 200, csrf), &moment)
+			_ = json.Unmarshal(request(admin, "GET", fmt.Sprintf("/api/admin/contents/%d", articleID), nil, 200, csrf), &article)
+			if len(moment.Images) != 1 || moment.Images[0] != u.URL || !strings.Contains(moment.Body, u.URL) || article.CoverURL != u.URL || !strings.Contains(article.Body, server.URL+u.URL) {
+				t.Fatal("内容引用没有更新为旋转后的版本")
+			}
+			currentSettings, _ := app.settings(context.Background())
+			if currentSettings.AvatarURL != server.URL+u.URL {
+				t.Fatal("头像引用没有更新")
+			}
+			var listed struct {
+				Items []model.Upload `json:"items"`
+			}
+			_ = json.Unmarshal(request(admin, "GET", "/api/admin/uploads", nil, 200, csrf), &listed)
+			if len(listed.Items) != 1 || listed.Items[0].URL != u.URL {
+				t.Fatal("刷新图片库后丢失了旋转版本")
+			}
+		}
+		request(visitor, "GET", originalURL, nil, 200, "")
+		request(admin, "PUT", path, map[string]string{"direction": "left"}, 200, csrf)
+		request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", id), nil, 200, csrf)
+		request(admin, "DELETE", fmt.Sprintf("/api/admin/contents/%d", articleID), nil, 200, csrf)
+		request(admin, "PUT", "/api/admin/settings", originalSettings, 200, csrf)
+		request(admin, "DELETE", fmt.Sprintf("/api/admin/uploads/%d", u.ID), nil, 200, csrf)
+		files, _ := os.ReadDir(app.cfg.UploadDir)
+		if len(files) != 0 {
+			t.Fatalf("旋转留下了未清理的图片文件: %v", files)
+		}
 	})
 	t.Run("图片分类识别旧引用、首次保存归档、移动和重试", func(t *testing.T) {
 		var pngData bytes.Buffer

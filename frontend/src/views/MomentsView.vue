@@ -1,34 +1,23 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
-import { api, errorMessage } from "../lib/api";
-import type { Content, Page } from "../lib/types";
+import { watch } from "vue";
+import { useRoute } from "vue-router";
+import { useInfiniteFeed } from "../lib/infiniteFeed";
 import MomentCard from "../components/MomentCard.vue";
-import Pagination from "../components/Pagination.vue";
+import InfiniteLoader from "../components/InfiniteLoader.vue";
 
-const route = useRoute(),
-  router = useRouter();
-const result = ref<Page<Content>>({ items: [], total: 0, page: 1, pages: 0 });
-const loading = ref(true),
-  error = ref("");
-let request = 0;
-async function load() {
-  const id = ++request;
-  loading.value = true;
-  error.value = "";
-  try {
-    const params = new URLSearchParams({
-      kind: "moment",
-      page: String(Number(route.query.page) || 1),
-      limit: "12",
-    });
-    const data = await api<Page<Content>>(`/contents?${params}`);
-    if (id === request) result.value = data;
-  } catch (e) {
-    if (id === request) error.value = errorMessage(e);
-  } finally {
-    if (id === request) loading.value = false;
-  }
+const route = useRoute();
+const {
+  items,
+  loading,
+  error,
+  loadingMore,
+  moreError,
+  hasMore,
+  reset,
+  loadMore,
+} = useInfiniteFeed("/contents?kind=moment&limit=12");
+function load() {
+  return reset(Math.max(1, Math.floor(Number(route.query.page) || 1)));
 }
 watch(() => route.query.page, load, { immediate: true });
 </script>
@@ -43,14 +32,16 @@ watch(() => route.query.page, load, { immediate: true });
       {{ error }} <button class="text-link" @click="load">重试</button>
     </div>
     <template v-else>
-      <div v-if="result.items.length" class="moment-feed">
-        <MomentCard v-for="c in result.items" :key="c.id" :content="c" />
+      <div v-if="items.length" class="moment-feed">
+        <MomentCard v-for="c in items" :key="c.id" :content="c" />
       </div>
       <p v-else class="moments-empty">还没有日常，等一个想分享的瞬间。</p>
-      <Pagination
-        :page="result.page"
-        :pages="result.pages"
-        @change="(page) => router.push({ query: { ...route.query, page } })"
+      <InfiniteLoader
+        v-if="items.length"
+        :has-more="hasMore"
+        :loading="loadingMore"
+        :error="moreError"
+        @load="loadMore"
       />
     </template>
   </section>

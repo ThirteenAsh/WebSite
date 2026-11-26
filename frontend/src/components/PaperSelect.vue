@@ -16,6 +16,7 @@ const props = defineProps<{
   label: string;
   disabled?: boolean;
   searchable?: boolean;
+  singleLine?: boolean;
 }>();
 const emit = defineEmits<{
   "update:modelValue": [value: string];
@@ -240,7 +241,7 @@ onBeforeUnmount(() => {
           v-if="open"
           ref="panel"
           class="paper-select-menu"
-          :class="{ above }"
+          :class="{ above, 'paper-select-menu--single-line': singleLine }"
           :style="placement"
           @focusout="focusOutside"
         >
